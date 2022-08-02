@@ -471,7 +471,7 @@ def get_kms_aliases_with_backoff(connection):
 
 
 def get_kms_aliases_lookup(connection):
-    _aliases = dict()
+    _aliases = {}
     for alias in get_kms_aliases_with_backoff(connection)['Aliases']:
         # Not all aliases are actually associated with a key
         if 'TargetKeyId' in alias:
@@ -606,7 +606,7 @@ def convert_grant_params(grant, key):
     if grant.get('name'):
         grant_params['Name'] = grant['name']
     if grant.get('constraints'):
-        grant_params['Constraints'] = dict()
+        grant_params['Constraints'] = {}
         if grant['constraints'].get('encryption_context_subset'):
             grant_params['Constraints']['EncryptionContextSubset'] = grant['constraints']['encryption_context_subset']
         if grant['constraints'].get('encryption_context_equals'):
@@ -621,14 +621,12 @@ def different_grant(existing_grant, desired_grant):
         return True
     if set(existing_grant.get('operations', [])) != set(desired_grant.get('operations')):
         return True
-    if existing_grant.get('constraints') != desired_grant.get('constraints'):
-        return True
-    return False
+    return existing_grant.get('constraints') != desired_grant.get('constraints')
 
 
 def compare_grants(existing_grants, desired_grants, purge_grants=False):
-    existing_dict = dict((eg['name'], eg) for eg in existing_grants)
-    desired_dict = dict((dg['name'], dg) for dg in desired_grants)
+    existing_dict = {eg['name']: eg for eg in existing_grants}
+    desired_dict = {dg['name']: dg for dg in desired_grants}
     to_add_keys = set(desired_dict.keys()) - set(existing_dict.keys())
     if purge_grants:
         to_remove_keys = set(existing_dict.keys()) - set(desired_dict.keys())
@@ -689,10 +687,7 @@ def cancel_key_deletion(connection, module, key):
 
 
 def ensure_enabled_disabled(connection, module, key, enabled):
-    desired_state = 'Enabled'
-    if not enabled:
-        desired_state = 'Disabled'
-
+    desired_state = 'Enabled' if enabled else 'Disabled'
     if key['key_state'] == desired_state:
         return False
 
@@ -925,13 +920,13 @@ def _clean_statement_principals(statement, clean_invalid_entries):
 
     # create Principal and 'AWS' so we can safely use them later.
     if not isinstance(statement.get('Principal'), dict):
-        statement['Principal'] = dict()
+        statement['Principal'] = {}
 
     # If we have a single AWS Principal, ensure we still have a list (to manipulate)
     if 'AWS' in statement['Principal'] and isinstance(statement['Principal']['AWS'], string_types):
         statement['Principal']['AWS'] = [statement['Principal']['AWS']]
     if not isinstance(statement['Principal'].get('AWS'), list):
-        statement['Principal']['AWS'] = list()
+        statement['Principal']['AWS'] = []
 
     valid_princ = re.compile('^arn:aws:(iam|sts)::')
 
@@ -966,7 +961,6 @@ def _do_statement_grant(statement, role_arn, grant_types, mode, grant_type):
 
 
 def do_policy_grant(module, kms, keyarn, role_arn, grant_types, mode='grant', dry_run=True, clean_invalid_entries=True):
-    ret = {}
     policy = json.loads(get_key_policy_with_backoff(kms, keyarn, 'default')['Policy'])
 
     changes_needed = {}
@@ -980,14 +974,17 @@ def do_policy_grant(module, kms, keyarn, role_arn, grant_types, mode='grant', dr
                 continue
 
             had_invalid_entries |= _clean_statement_principals(statement, clean_invalid_entries)
-            change = _do_statement_grant(statement, role_arn, grant_types, mode, grant_type)
-            if change:
+            if change := _do_statement_grant(
+                statement, role_arn, grant_types, mode, grant_type
+            ):
                 changes_needed[grant_type] = change
 
-    ret['changes_needed'] = changes_needed
-    ret['had_invalid_entries'] = had_invalid_entries
-    ret['new_policy'] = policy
-    ret['changed'] = bool(changes_needed)
+    ret = {
+        'changes_needed': changes_needed,
+        'had_invalid_entries': had_invalid_entries,
+        'new_policy': policy,
+        'changed': bool(changes_needed),
+    }
 
     if dry_run or not ret['changed']:
         return ret
@@ -1013,9 +1010,11 @@ def assert_policy_shape(module, policy):
             if statement['Sid'] == sidlabel:
                 found_statement_type[label] = True
 
-    for statementtype in statement_label:
-        if not found_statement_type.get(statementtype):
-            errors.append('Policy is missing {0}.'.format(statementtype))
+    errors.extend(
+        'Policy is missing {0}.'.format(statementtype)
+        for statementtype in statement_label
+        if not found_statement_type.get(statementtype)
+    )
 
     if errors:
         module.fail_json(msg='Problems asserting policy shape. Cowardly refusing to modify it', errors=errors, policy=policy)
@@ -1024,9 +1023,7 @@ def assert_policy_shape(module, policy):
 def canonicalize_alias_name(alias):
     if alias is None:
         return None
-    if alias.startswith('alias/'):
-        return alias
-    return 'alias/' + alias
+    return alias if alias.startswith('alias/') else f'alias/{alias}'
 
 
 def fetch_key_metadata(connection, module, key_id, alias):
@@ -1073,14 +1070,20 @@ def update_policy_grants(connection, module, key_metadata, mode):
 def main():
     argument_spec = dict(
         alias=dict(aliases=['key_alias']),
-        policy_mode=dict(aliases=['mode'], choices=['grant', 'deny'], default='grant'),
+        policy_mode=dict(
+            aliases=['mode'], choices=['grant', 'deny'], default='grant'
+        ),
         policy_role_name=dict(aliases=['role_name']),
         policy_role_arn=dict(aliases=['role_arn']),
-        policy_grant_types=dict(aliases=['grant_types'], type='list', elements='str'),
-        policy_clean_invalid_entries=dict(aliases=['clean_invalid_entries'], type='bool', default=True),
+        policy_grant_types=dict(
+            aliases=['grant_types'], type='list', elements='str'
+        ),
+        policy_clean_invalid_entries=dict(
+            aliases=['clean_invalid_entries'], type='bool', default=True
+        ),
         pending_window=dict(aliases=['deletion_delay'], type='int'),
         key_id=dict(aliases=['key_arn']),
-        description=dict(),
+        description={},
         enabled=dict(type='bool', default=True),
         tags=dict(type='dict', default={}),
         purge_tags=dict(type='bool', default=False),
@@ -1089,10 +1092,28 @@ def main():
         purge_grants=dict(type='bool', default=False),
         state=dict(default='present', choices=['present', 'absent']),
         enable_key_rotation=(dict(type='bool')),
-        key_spec=dict(type='str', default='SYMMETRIC_DEFAULT', aliases=['customer_master_key_spec'],
-                      choices=['SYMMETRIC_DEFAULT', 'RSA_2048', 'RSA_3072', 'RSA_4096', 'ECC_NIST_P256', 'ECC_NIST_P384', 'ECC_NIST_P521', 'ECC_SECG_P256K1']),
-        key_usage=dict(type='str', default='ENCRYPT_DECRYPT', choices=['ENCRYPT_DECRYPT', 'SIGN_VERIFY']),
+        key_spec=dict(
+            type='str',
+            default='SYMMETRIC_DEFAULT',
+            aliases=['customer_master_key_spec'],
+            choices=[
+                'SYMMETRIC_DEFAULT',
+                'RSA_2048',
+                'RSA_3072',
+                'RSA_4096',
+                'ECC_NIST_P256',
+                'ECC_NIST_P384',
+                'ECC_NIST_P521',
+                'ECC_SECG_P256K1',
+            ],
+        ),
+        key_usage=dict(
+            type='str',
+            default='ENCRYPT_DECRYPT',
+            choices=['ENCRYPT_DECRYPT', 'SIGN_VERIFY'],
+        ),
     )
+
 
     module = AnsibleAWSModule(
         supports_check_mode=True,

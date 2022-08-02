@@ -295,14 +295,15 @@ def pem_chain_split(module, pem):
 
 def main():
     argument_spec = dict(
-        certificate=dict(),
+        certificate={},
         certificate_arn=dict(aliases=['arn']),
-        certificate_chain=dict(),
+        certificate_chain={},
         domain_name=dict(aliases=['domain']),
         name_tag=dict(aliases=['name']),
         private_key=dict(no_log=True),
-        state=dict(default='present', choices=['present', 'absent'])
+        state=dict(default='present', choices=['present', 'absent']),
     )
+
     required_if = [
         ['state', 'present', ['certificate', 'name_tag', 'private_key']],
     ]
@@ -316,9 +317,9 @@ def main():
     else:  # absent
         # exactly one of these should be specified
         absent_args = ['certificate_arn', 'domain_name', 'name_tag']
-        if sum([(module.params[a] is not None) for a in absent_args]) != 1:
+        if sum(module.params[a] is not None for a in absent_args) != 1:
             for a in absent_args:
-                module.debug("%s is %s" % (a, module.params[a]))
+                module.debug(f"{a} is {module.params[a]}")
             module.fail_json(msg="If 'state' is specified as 'absent' then exactly one of 'name_tag', certificate_arn' or 'domain_name' must be specified")
 
     if module.params['name_tag']:
@@ -339,7 +340,8 @@ def main():
 
     if module.params['state'] == 'present':
         if len(certificates) > 1:
-            msg = "More than one certificate with Name=%s exists in ACM in this region" % module.params['name_tag']
+            msg = f"More than one certificate with Name={module.params['name_tag']} exists in ACM in this region"
+
             module.fail_json(msg=msg, certificates=certificates)
         elif len(certificates) == 1:
             # update the existing certificate

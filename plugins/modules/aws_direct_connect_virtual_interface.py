@@ -476,20 +476,24 @@ def ensure_state(connection, module):
 def main():
     argument_spec = dict(
         state=dict(required=True, choices=['present', 'absent']),
-        id_to_associate=dict(required=True, aliases=['link_aggregation_group_id', 'connection_id']),
+        id_to_associate=dict(
+            required=True,
+            aliases=['link_aggregation_group_id', 'connection_id'],
+        ),
         public=dict(type='bool'),
-        name=dict(),
+        name={},
         vlan=dict(type='int', default=100),
         bgp_asn=dict(type='int', default=65000),
         authentication_key=dict(no_log=True),
-        amazon_address=dict(),
-        customer_address=dict(),
-        address_type=dict(),
+        amazon_address={},
+        customer_address={},
+        address_type={},
         cidr=dict(type='list', elements='str'),
-        virtual_gateway_id=dict(),
-        direct_connect_gateway_id=dict(),
-        virtual_interface_id=dict()
+        virtual_gateway_id={},
+        direct_connect_gateway_id={},
+        virtual_interface_id={},
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               required_one_of=[['virtual_interface_id', 'name']],

@@ -212,13 +212,12 @@ def lag_exists(client, lag_id=None, lag_name=None, verify=True):
             match.append(response['lags'][0]['lagId'])
             lag.append(response['lags'][0])
     else:
-        for each in response.get('lags', []):
-            if each['lagState'] != 'deleted':
-                if not lag_id:
-                    if lag_name == each['lagName']:
-                        match.append(each['lagId'])
-                else:
-                    match.append(each['lagId'])
+        match.extend(
+            each['lagId']
+            for each in response.get('lags', [])
+            if each['lagState'] != 'deleted'
+            and (not lag_id and lag_name == each['lagName'] or lag_id)
+        )
 
     # verifying if the connections exists; if true, return connection identifier, otherwise return False
     if verify and len(match) == 1:
@@ -226,12 +225,8 @@ def lag_exists(client, lag_id=None, lag_name=None, verify=True):
     elif verify:
         return False
 
-    # not verifying if the connection exists; just return current connection info
     else:
-        if len(lag) == 1:
-            return lag[0]
-        else:
-            return {}
+        return lag[0] if len(lag) == 1 else {}
 
 
 def create_lag(client, num_connections, location, bandwidth, name, connection_id):
@@ -403,18 +398,19 @@ def ensure_absent(client, lag_id, lag_name, force_delete, delete_with_disassocia
 def main():
     argument_spec = dict(
         state=dict(required=True, choices=['present', 'absent']),
-        name=dict(),
-        link_aggregation_group_id=dict(),
+        name={},
+        link_aggregation_group_id={},
         num_connections=dict(type='int'),
         min_links=dict(type='int'),
-        location=dict(),
-        bandwidth=dict(),
-        connection_id=dict(),
+        location={},
+        bandwidth={},
+        connection_id={},
         delete_with_disassociation=dict(type='bool', default=False),
         force_delete=dict(type='bool', default=False),
         wait=dict(type='bool', default=False),
         wait_timeout=dict(type='int', default=120),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

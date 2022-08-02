@@ -240,22 +240,29 @@ def delete_parameter(client, module):
 
 
 def setup_client(module):
-    connection = module.client('ssm')
-    return connection
+    return module.client('ssm')
 
 
 def setup_module_object():
     argument_spec = dict(
         name=dict(required=True),
-        description=dict(),
+        description={},
         value=dict(required=False, no_log=True),
         state=dict(default='present', choices=['present', 'absent']),
-        string_type=dict(default='String', choices=['String', 'StringList', 'SecureString']),
+        string_type=dict(
+            default='String', choices=['String', 'StringList', 'SecureString']
+        ),
         decryption=dict(default=True, type='bool'),
         key_id=dict(default="alias/aws/ssm"),
-        overwrite_value=dict(default='changed', choices=['never', 'changed', 'always']),
-        tier=dict(default='Standard', choices=['Standard', 'Advanced', 'Intelligent-Tiering']),
+        overwrite_value=dict(
+            default='changed', choices=['never', 'changed', 'always']
+        ),
+        tier=dict(
+            default='Standard',
+            choices=['Standard', 'Advanced', 'Intelligent-Tiering'],
+        ),
     )
+
 
     return AnsibleAWSModule(
         argument_spec=argument_spec,

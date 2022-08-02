@@ -356,7 +356,7 @@ def compare_stack_instances(cfn, stack_set_name, accounts, regions):
         StackSetName=stack_set_name,
     )['Summaries']
     desired_stack_instances = set(itertools.product(accounts, regions))
-    existing_stack_instances = set((i['Account'], i['Region']) for i in instance_list)
+    existing_stack_instances = {(i['Account'], i['Region']) for i in instance_list}
     # new stacks, existing stacks, unspecified stacks
     return (desired_stack_instances - existing_stack_instances), existing_stack_instances, (existing_stack_instances - desired_stack_instances)
 
@@ -375,7 +375,7 @@ def stack_set_facts(cfn, stack_set_name):
 def await_stack_set_operation(module, cfn, stack_set_name, operation_id, max_wait):
     wait_start = datetime.datetime.now()
     operation = None
-    for i in range(max_wait // 15):
+    for _ in range(max_wait // 15):
         try:
             operation = cfn.describe_stack_set_operation(StackSetName=stack_set_name, OperationId=operation_id)
             if operation['StackSetOperation']['Status'] not in ('RUNNING', 'STOPPING'):
@@ -394,9 +394,7 @@ def await_stack_set_operation(module, cfn, stack_set_name, operation_id, max_wai
             # subtract however long we waited already
             max_wait=int(max_wait - (datetime.datetime.now() - wait_start).total_seconds()),
         )
-    elif operation and operation['StackSetOperation']['Status'] in ('FAILED', 'STOPPED'):
-        pass
-    else:
+    elif not operation:
         module.warn(
             "Timed out waiting for operation {0} on stack set {1} after {2} seconds. Returning unfinished operation".format(
                 operation_id, stack_set_name, max_wait
@@ -406,7 +404,7 @@ def await_stack_set_operation(module, cfn, stack_set_name, operation_id, max_wai
 
 def await_stack_instance_completion(module, cfn, stack_set_name, max_wait):
     to_await = None
-    for i in range(max_wait // 15):
+    for _ in range(max_wait // 15):
         try:
             stack_instances = cfn.list_stack_instances(StackSetName=stack_set_name)
             to_await = [inst for inst in stack_instances['Summaries']
@@ -435,13 +433,15 @@ def await_stack_set_exists(cfn, stack_set_name):
 def describe_stack_tree(module, stack_set_name, operation_ids=None):
     jittered_backoff_decorator = AWSRetry.jittered_backoff(retries=5, delay=3, max_delay=5, catch_extra_error_codes=['StackSetNotFound'])
     cfn = module.client('cloudformation', retry_decorator=jittered_backoff_decorator)
-    result = dict()
-    result['stack_set'] = camel_dict_to_snake_dict(
-        cfn.describe_stack_set(
-            StackSetName=stack_set_name,
-            aws_retry=True,
-        )['StackSet']
-    )
+    result = {
+        'stack_set': camel_dict_to_snake_dict(
+            cfn.describe_stack_set(
+                StackSetName=stack_set_name,
+                aws_retry=True,
+            )['StackSet']
+        )
+    }
+
     result['stack_set']['tags'] = boto3_tag_list_to_ansible_dict(result['stack_set']['tags'])
     result['operations_log'] = sorted(
         camel_dict_to_snake_dict(
@@ -476,7 +476,7 @@ def describe_stack_tree(module, stack_set_name, operation_ids=None):
 
 
 def get_operation_preferences(module):
-    params = dict()
+    params = {}
     if module.params.get('regions'):
         params['RegionOrder'] = list(module.params['regions'])
     for param, api_name in {

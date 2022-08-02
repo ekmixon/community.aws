@@ -294,11 +294,7 @@ except ImportError:
 # Merge the results of the scalable target creation and policy deletion/creation
 # There's no risk in overriding values since mutual keys have the same values in our case
 def merge_results(scalable_target_result, policy_result):
-    if scalable_target_result['changed'] or policy_result['changed']:
-        changed = True
-    else:
-        changed = False
-
+    changed = bool(scalable_target_result['changed'] or policy_result['changed'])
     merged_response = scalable_target_result['response'].copy()
     merged_response.update(policy_result['response'])
 
@@ -510,11 +506,11 @@ def main():
 
     connection = module.client('application-autoscaling')
 
-    # Remove any target_tracking_scaling_policy_configuration suboptions that are None
-    policy_config_options = [
-        'CustomizedMetricSpecification', 'DisableScaleIn', 'PredefinedMetricSpecification', 'ScaleInCooldown', 'ScaleOutCooldown', 'TargetValue'
-    ]
     if isinstance(module.params['target_tracking_scaling_policy_configuration'], dict):
+        # Remove any target_tracking_scaling_policy_configuration suboptions that are None
+        policy_config_options = [
+            'CustomizedMetricSpecification', 'DisableScaleIn', 'PredefinedMetricSpecification', 'ScaleInCooldown', 'ScaleOutCooldown', 'TargetValue'
+        ]
         for option in policy_config_options:
             if module.params['target_tracking_scaling_policy_configuration'][option] is None:
                 module.params['target_tracking_scaling_policy_configuration'].pop(option)

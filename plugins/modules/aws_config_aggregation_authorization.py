@@ -64,11 +64,14 @@ from ansible_collections.amazon.aws.plugins.module_utils.ec2 import AWSRetry
 def resource_exists(client, module, params):
     try:
         current_authorizations = client.describe_aggregation_authorizations()['AggregationAuthorizations']
-        authorization_exists = next(
-            (item for item in current_authorizations if item["AuthorizedAccountId"] == params['AuthorizedAccountId']),
-            None
-        )
-        if authorization_exists:
+        if authorization_exists := next(
+            (
+                item
+                for item in current_authorizations
+                if item["AuthorizedAccountId"] == params['AuthorizedAccountId']
+            ),
+            None,
+        ):
             return True
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError):
         return False
@@ -146,9 +149,8 @@ def main():
         else:
             update_resource(client, module, params, result)
 
-    if module.params.get('state') == 'absent':
-        if resource_status:
-            delete_resource(client, module, params, result)
+    if module.params.get('state') == 'absent' and resource_status:
+        delete_resource(client, module, params, result)
 
     module.exit_json(changed=result['changed'])
 

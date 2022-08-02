@@ -266,50 +266,58 @@ class CloudFrontServiceManager:
 
     def get_distribution(self, distribution_id):
         try:
-            distribution = self.client.get_distribution(aws_retry=True, Id=distribution_id)
-            return distribution
+            return self.client.get_distribution(aws_retry=True, Id=distribution_id)
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing distribution")
 
     def get_distribution_config(self, distribution_id):
         try:
-            distribution = self.client.get_distribution_config(aws_retry=True, Id=distribution_id)
-            return distribution
+            return self.client.get_distribution_config(aws_retry=True, Id=distribution_id)
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing distribution configuration")
 
     def get_origin_access_identity(self, origin_access_identity_id):
         try:
-            origin_access_identity = self.client.get_cloud_front_origin_access_identity(aws_retry=True, Id=origin_access_identity_id)
-            return origin_access_identity
+            return self.client.get_cloud_front_origin_access_identity(
+                aws_retry=True, Id=origin_access_identity_id
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing origin access identity")
 
     def get_origin_access_identity_config(self, origin_access_identity_id):
         try:
-            origin_access_identity = self.client.get_cloud_front_origin_access_identity_config(aws_retry=True, Id=origin_access_identity_id)
-            return origin_access_identity
+            return self.client.get_cloud_front_origin_access_identity_config(
+                aws_retry=True, Id=origin_access_identity_id
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing origin access identity configuration")
 
     def get_invalidation(self, distribution_id, invalidation_id):
         try:
-            invalidation = self.client.get_invalidation(aws_retry=True, DistributionId=distribution_id, Id=invalidation_id)
-            return invalidation
+            return self.client.get_invalidation(
+                aws_retry=True, DistributionId=distribution_id, Id=invalidation_id
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing invalidation")
 
     def get_streaming_distribution(self, distribution_id):
         try:
-            streaming_distribution = self.client.get_streaming_distribution(aws_retry=True, Id=distribution_id)
-            return streaming_distribution
+            return self.client.get_streaming_distribution(
+                aws_retry=True, Id=distribution_id
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing streaming distribution")
 
     def get_streaming_distribution_config(self, distribution_id):
         try:
-            streaming_distribution = self.client.get_streaming_distribution_config(aws_retry=True, Id=distribution_id)
-            return streaming_distribution
+            return self.client.get_streaming_distribution_config(
+                aws_retry=True, Id=distribution_id
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error describing streaming distribution")
 
@@ -317,8 +325,7 @@ class CloudFrontServiceManager:
     @AWSRetry.jittered_backoff()
     def _paginated_result(self, paginator_name, **params):
         paginator = self.client.get_paginator(paginator_name)
-        results = paginator.paginate(**params).build_full_result()
-        return results
+        return paginator.paginate(**params).build_full_result()
 
     def list_origin_access_identities(self):
         try:
@@ -341,9 +348,12 @@ class CloudFrontServiceManager:
             else:
                 return {}
 
-            if not keyed:
-                return distribution_list
-            return self.keyed_list_helper(distribution_list)
+            return (
+                self.keyed_list_helper(distribution_list)
+                if keyed
+                else distribution_list
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error listing distributions")
 
@@ -381,15 +391,18 @@ class CloudFrontServiceManager:
             else:
                 return {}
 
-            if not keyed:
-                return streaming_distribution_list
-            return self.keyed_list_helper(streaming_distribution_list)
+            return (
+                self.keyed_list_helper(streaming_distribution_list)
+                if keyed
+                else streaming_distribution_list
+            )
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error listing streaming distributions")
 
     def summary(self):
         summary_dict = {}
-        summary_dict.update(self.summary_get_distribution_list(False))
+        summary_dict |= self.summary_get_distribution_list(False)
         summary_dict.update(self.summary_get_distribution_list(True))
         summary_dict.update(self.summary_get_origin_access_identity_list())
         return summary_dict
@@ -414,15 +427,14 @@ class CloudFrontServiceManager:
             distribution_list = {list_name: []}
             distributions = self.list_streaming_distributions(False) if streaming else self.list_distributions(False)
             for dist in distributions:
-                temp_distribution = {}
-                for key_name in key_list:
-                    temp_distribution[key_name] = dist[key_name]
-                temp_distribution['Aliases'] = [alias for alias in dist['Aliases'].get('Items', [])]
+                temp_distribution = {key_name: dist[key_name] for key_name in key_list}
+                temp_distribution['Aliases'] = list(dist['Aliases'].get('Items', []))
                 temp_distribution['ETag'] = self.get_etag_from_distribution_id(dist['Id'], streaming)
                 if not streaming:
                     temp_distribution['WebACLId'] = dist['WebACLId']
-                    invalidation_ids = self.get_list_of_invalidation_ids_from_distribution_id(dist['Id'])
-                    if invalidation_ids:
+                    if invalidation_ids := self.get_list_of_invalidation_ids_from_distribution_id(
+                        dist['Id']
+                    ):
                         temp_distribution['Invalidations'] = invalidation_ids
                 resource_tags = self.client.list_tags_for_resource(Resource=dist['ARN'])
                 temp_distribution['Tags'] = boto3_tag_list_to_ansible_dict(resource_tags['Tags'].get('Items', []))
@@ -431,24 +443,25 @@ class CloudFrontServiceManager:
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error generating summary of distributions")
         except Exception as e:
-            self.module.fail_json(msg="Error generating summary of distributions - " + str(e),
-                                  exception=traceback.format_exc())
+            self.module.fail_json(
+                msg=f"Error generating summary of distributions - {str(e)}",
+                exception=traceback.format_exc(),
+            )
 
     def get_etag_from_distribution_id(self, distribution_id, streaming):
         distribution = {}
-        if not streaming:
-            distribution = self.get_distribution(distribution_id)
-        else:
-            distribution = self.get_streaming_distribution(distribution_id)
+        distribution = (
+            self.get_streaming_distribution(distribution_id)
+            if streaming
+            else self.get_distribution(distribution_id)
+        )
+
         return distribution['ETag']
 
     def get_list_of_invalidation_ids_from_distribution_id(self, distribution_id):
         try:
-            invalidation_ids = []
             invalidations = self.list_invalidations(distribution_id)
-            for invalidation in invalidations:
-                invalidation_ids.append(invalidation['Id'])
-            return invalidation_ids
+            return [invalidation['Id'] for invalidation in invalidations]
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error getting list of invalidation ids")
 
@@ -473,22 +486,21 @@ class CloudFrontServiceManager:
             distributions = self.list_distributions(False)
             for dist in distributions:
                 if dist['Id'] == distribution_id and 'Items' in dist['Aliases']:
-                    for alias in dist['Aliases']['Items']:
-                        aliases.append(alias)
+                    aliases.extend(iter(dist['Aliases']['Items']))
                     break
             return aliases
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error getting list of aliases from distribution_id")
 
     def keyed_list_helper(self, list_to_key):
-        keyed_list = dict()
+        keyed_list = {}
         for item in list_to_key:
             distribution_id = item['Id']
             if 'Items' in item['Aliases']:
                 aliases = item['Aliases']['Items']
                 for alias in aliases:
-                    keyed_list.update({alias: item})
-            keyed_list.update({distribution_id: item})
+                    keyed_list[alias] = item
+            keyed_list[distribution_id] = item
         return keyed_list
 
 

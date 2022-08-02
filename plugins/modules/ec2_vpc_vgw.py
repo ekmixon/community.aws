@@ -132,18 +132,17 @@ class VGWRetry(AWSRetry):
 
     @staticmethod
     def found(response_code, catch_extra_error_codes=None):
-        retry_on = ['The maximum number of mutating objects has been reached.']
-
         if catch_extra_error_codes:
+            retry_on = ['The maximum number of mutating objects has been reached.']
+
             retry_on.extend(catch_extra_error_codes)
         if not isinstance(response_code, tuple):
             response_code = (response_code,)
 
-        for code in response_code:
-            if super().found(response_code, catch_extra_error_codes):
-                return True
-
-        return False
+        return any(
+            super().found(response_code, catch_extra_error_codes)
+            for _ in response_code
+        )
 
 
 def get_vgw_info(vgws):
@@ -156,8 +155,9 @@ def get_vgw_info(vgws):
             'type': vgw['Type'],
             'state': vgw['State'],
             'vpc_id': None,
-            'tags': dict()
+            'tags': {},
         }
+
 
         for tag in vgw['Tags']:
             vgw_info['tags'][tag['Key']] = tag['Value']
@@ -173,7 +173,7 @@ def wait_for_status(client, module, vpn_gateway_id, status):
     max_retries = (module.params.get('wait_timeout') // polling_increment_secs)
     status_achieved = False
 
-    for x in range(0, max_retries):
+    for _ in range(max_retries):
         try:
             response = find_vgw(client, module, vpn_gateway_id)
             if response[0]['VpcAttachments'][0]['State'] == status:
@@ -189,9 +189,7 @@ def wait_for_status(client, module, vpn_gateway_id, status):
 
 
 def attach_vgw(client, module, vpn_gateway_id):
-    params = dict()
-    params['VpcId'] = module.params.get('vpc_id')
-
+    params = {'VpcId': module.params.get('vpc_id')}
     try:
         # Immediately after a detachment, the EC2 API sometimes will report the VpnGateways[0].State
         # as available several seconds before actually permitting a new attachment.
@@ -207,14 +205,11 @@ def attach_vgw(client, module, vpn_gateway_id):
     if not status_achieved:
         module.fail_json(msg='Error waiting for vpc to attach to vgw - please check the AWS console')
 
-    result = response
-    return result
+    return response
 
 
 def detach_vgw(client, module, vpn_gateway_id, vpc_id=None):
-    params = dict()
-    params['VpcId'] = module.params.get('vpc_id')
-
+    params = {'VpcId': module.params.get('vpc_id')}
     try:
         if vpc_id:
             response = client.detach_vpn_gateway(VpnGatewayId=vpn_gateway_id, VpcId=vpc_id, aws_retry=True)
@@ -227,13 +222,11 @@ def detach_vgw(client, module, vpn_gateway_id, vpc_id=None):
     if not status_achieved:
         module.fail_json(msg='Error waiting for  vpc to detach from vgw - please check the AWS console')
 
-    result = response
-    return result
+    return response
 
 
 def create_vgw(client, module):
-    params = dict()
-    params['Type'] = module.params.get('type')
+    params = {'Type': module.params.get('type')}
     if module.params.get('asn'):
         params['AmazonSideAsn'] = module.params.get('asn')
 
@@ -251,8 +244,7 @@ def create_vgw(client, module):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:  # pylint: disable=duplicate-except
         module.fail_json_aws(e, msg='Failed to create gateway')
 
-    result = response
-    return result
+    return response
 
 
 def delete_vgw(client, module, vpn_gateway_id):
@@ -262,25 +254,22 @@ def delete_vgw(client, module, vpn_gateway_id):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg='Failed to delete gateway')
 
-    # return the deleted VpnGatewayId as this is not included in the above response
-    result = vpn_gateway_id
-    return result
+    return vpn_gateway_id
 
 
 def create_tags(client, module, vpn_gateway_id):
-    params = dict()
+    params = {}
 
     try:
         response = client.create_tags(Resources=[vpn_gateway_id], Tags=load_tags(module), aws_retry=True)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Failed to add tags")
 
-    result = response
-    return result
+    return response
 
 
 def delete_tags(client, module, vpn_gateway_id, tags_to_delete=None):
-    params = dict()
+    params = {}
 
     try:
         if tags_to_delete:
@@ -290,19 +279,19 @@ def delete_tags(client, module, vpn_gateway_id, tags_to_delete=None):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg='Unable to remove tags from gateway')
 
-    result = response
-    return result
+    return response
 
 
 def load_tags(module):
     tags = []
 
     if module.params.get('tags'):
-        for name, value in module.params.get('tags').items():
-            tags.append({'Key': name, 'Value': str(value)})
-        tags.append({'Key': "Name", 'Value': module.params.get('name')})
-    else:
-        tags.append({'Key': "Name", 'Value': module.params.get('name')})
+        tags.extend(
+            {'Key': name, 'Value': str(value)}
+            for name, value in module.params.get('tags').items()
+        )
+
+    tags.append({'Key': "Name", 'Value': module.params.get('name')})
     return tags
 
 
@@ -316,21 +305,19 @@ def find_tags(client, module, resource_id=None):
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg='Failed to describe tags searching by resource')
 
-    result = response
-    return result
+    return response
 
 
 def check_tags(client, module, existing_vgw, vpn_gateway_id):
-    params = dict()
-    params['Tags'] = module.params.get('tags')
+    params = {'Tags': module.params.get('tags')}
     vgw = existing_vgw
     changed = False
-    tags_list = {}
+    tags_list = {
+        tags['Key']: tags['Value']
+        for tags in existing_vgw[0]['Tags']
+        if tags['Key'] != 'Name'
+    }
 
-    # format tags for comparison
-    for tags in existing_vgw[0]['Tags']:
-        if tags['Key'] != 'Name':
-            tags_list[tags['Key']] = tags['Value']
 
     # if existing tags don't match the tags arg, delete existing and recreate with new list
     if params['Tags'] is not None and tags_list != params['Tags']:
@@ -341,10 +328,9 @@ def check_tags(client, module, existing_vgw, vpn_gateway_id):
 
     # if no tag args are supplied, delete any existing tags with the exception of the name tag
     if params['Tags'] is None and tags_list != {}:
-        tags_to_delete = []
-        for tags in existing_vgw[0]['Tags']:
-            if tags['Key'] != 'Name':
-                tags_to_delete.append(tags)
+        tags_to_delete = [
+            tags for tags in existing_vgw[0]['Tags'] if tags['Key'] != 'Name'
+        ]
 
         delete_tags(client, module, vpn_gateway_id, tags_to_delete)
         vgw = find_vgw(client, module)
@@ -354,21 +340,18 @@ def check_tags(client, module, existing_vgw, vpn_gateway_id):
 
 
 def find_vpc(client, module):
-    params = dict()
-    params['vpc_id'] = module.params.get('vpc_id')
-
+    params = {'vpc_id': module.params.get('vpc_id')}
     if params['vpc_id']:
         try:
             response = client.describe_vpcs(VpcIds=[params['vpc_id']], aws_retry=True)
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg='Failed to describe VPC')
 
-    result = response
-    return result
+    return response
 
 
 def find_vgw(client, module, vpn_gateway_id=None):
-    params = dict()
+    params = {}
     if vpn_gateway_id:
         params['VpnGatewayIds'] = vpn_gateway_id
     else:
@@ -392,9 +375,8 @@ def ensure_vgw_present(client, module):
     # found and we will not create another vgw.
 
     changed = False
-    params = dict()
-    result = dict()
-    params['Name'] = module.params.get('name')
+    result = {}
+    params = {'Name': module.params.get('name')}
     params['VpcId'] = module.params.get('vpc_id')
     params['Type'] = module.params.get('type')
     params['Tags'] = module.params.get('tags')
@@ -417,7 +399,7 @@ def ensure_vgw_present(client, module):
             current_vpc_attachments = existing_vgw[0]['VpcAttachments']
 
             if current_vpc_attachments != [] and current_vpc_attachments[0]['State'] == 'attached':
-                if current_vpc_attachments[0]['VpcId'] != params['VpcId'] or current_vpc_attachments[0]['State'] != 'attached':
+                if current_vpc_attachments[0]['VpcId'] != params['VpcId']:
                     # detach the existing vpc from the virtual gateway
                     vpc_to_detach = current_vpc_attachments[0]['VpcId']
                     detach_vgw(client, module, vpn_gateway_id, vpc_to_detach)
@@ -429,16 +411,17 @@ def ensure_vgw_present(client, module):
                 attached_vgw = attach_vgw(client, module, vpn_gateway_id)
                 changed = True
 
-        # if params['VpcId'] is not provided, check the vgw is attached to a vpc. if so, detach it.
         else:
             existing_vgw = find_vgw(client, module, [vpn_gateway_id])
 
-            if existing_vgw[0]['VpcAttachments'] != []:
-                if existing_vgw[0]['VpcAttachments'][0]['State'] == 'attached':
-                    # detach the vpc from the vgw
-                    vpc_to_detach = existing_vgw[0]['VpcAttachments'][0]['VpcId']
-                    detach_vgw(client, module, vpn_gateway_id, vpc_to_detach)
-                    changed = True
+            if (
+                existing_vgw[0]['VpcAttachments'] != []
+                and existing_vgw[0]['VpcAttachments'][0]['State'] == 'attached'
+            ):
+                # detach the vpc from the vgw
+                vpc_to_detach = existing_vgw[0]['VpcAttachments'][0]['VpcId']
+                detach_vgw(client, module, vpn_gateway_id, vpc_to_detach)
+                changed = True
 
     else:
         # create a new vgw
@@ -466,9 +449,8 @@ def ensure_vgw_absent(client, module):
     # found and we will take steps to delete it.
 
     changed = False
-    params = dict()
-    result = dict()
-    params['Name'] = module.params.get('name')
+    result = {}
+    params = {'Name': module.params.get('name')}
     params['VpcId'] = module.params.get('vpc_id')
     params['Type'] = module.params.get('type')
     params['Tags'] = module.params.get('tags')
@@ -552,14 +534,20 @@ def ensure_vgw_absent(client, module):
 def main():
     argument_spec = dict(
         state=dict(default='present', choices=['present', 'absent']),
-        name=dict(),
-        vpn_gateway_id=dict(),
-        vpc_id=dict(),
+        name={},
+        vpn_gateway_id={},
+        vpc_id={},
         asn=dict(type='int'),
         wait_timeout=dict(type='int', default=320),
         type=dict(default='ipsec.1', choices=['ipsec.1']),
-        tags=dict(default=None, required=False, type='dict', aliases=['resource_tags']),
+        tags=dict(
+            default=None,
+            required=False,
+            type='dict',
+            aliases=['resource_tags'],
+        ),
     )
+
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               required_if=[['state', 'present', ['name']]])
 

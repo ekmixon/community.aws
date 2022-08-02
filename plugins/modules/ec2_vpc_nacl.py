@@ -176,11 +176,12 @@ def icmp_present(entry):
 def load_tags(module):
     tags = []
     if module.params.get('tags'):
-        for name, value in module.params.get('tags').items():
-            tags.append({'Key': name, 'Value': str(value)})
-        tags.append({'Key': "Name", 'Value': module.params.get('name')})
-    else:
-        tags.append({'Key': "Name", 'Value': module.params.get('name')})
+        tags.extend(
+            {'Key': name, 'Value': str(value)}
+            for name, value in module.params.get('tags').items()
+        )
+
+    tags.append({'Key': "Name", 'Value': module.params.get('name')})
     return tags
 
 
@@ -212,12 +213,10 @@ def subnets_changed(nacl, client, module):
             return changed
         changed = False
         return changed
-    subs_added = subnets_added(nacl_id, subnets, client, module)
-    if subs_added:
+    if subs_added := subnets_added(nacl_id, subnets, client, module):
         replace_network_acl_association(nacl_id, subs_added, client, module)
         changed = True
-    subs_removed = subnets_removed(nacl_id, subnets, client, module)
-    if subs_removed:
+    if subs_removed := subnets_removed(nacl_id, subnets, client, module):
         default_nacl_id = find_default_vpc_nacl(vpc_id, client, module)[0]
         replace_network_acl_association(default_nacl_id, subs_removed, client, module)
         changed = True
@@ -226,8 +225,7 @@ def subnets_changed(nacl, client, module):
 
 def nacls_changed(nacl, client, module):
     changed = False
-    params = dict()
-    params['egress'] = module.params.get('egress')
+    params = {'egress': module.params.get('egress')}
     params['ingress'] = module.params.get('ingress')
 
     nacl_id = nacl['NetworkAcls'][0]['NetworkAclId']
@@ -243,10 +241,7 @@ def nacls_changed(nacl, client, module):
 
 
 def tags_changed(nacl_id, client, module):
-    changed = False
-    tags = dict()
-    if module.params.get('tags'):
-        tags = module.params.get('tags')
+    tags = module.params.get('tags') or {}
     if module.params.get('name') and not tags.get('Name'):
         tags['Name'] = module.params['name']
     nacl = find_acl_by_id(nacl_id, client, module)
@@ -256,39 +251,31 @@ def tags_changed(nacl_id, client, module):
         tag_values = [[key, str(value)] for key, value in tags.items()]
         tags = [item for sublist in tag_values for item in sublist]
         if sorted(nacl_tags) == sorted(tags):
-            changed = False
-            return changed
-        else:
-            delete_tags(nacl_id, client, module)
-            create_tags(nacl_id, client, module)
-            changed = True
-            return changed
-    return changed
+            return False
+        delete_tags(nacl_id, client, module)
+        create_tags(nacl_id, client, module)
+        return True
+    return False
 
 
 def rules_changed(aws_rules, param_rules, Egress, nacl_id, client, module):
     changed = False
-    rules = list()
-    for entry in param_rules:
-        rules.append(process_rule_entry(entry, Egress))
+    rules = [process_rule_entry(entry, Egress) for entry in param_rules]
     if rules == aws_rules:
         return changed
-    else:
-        removed_rules = [x for x in aws_rules if x not in rules]
-        if removed_rules:
-            params = dict()
-            for rule in removed_rules:
-                params['NetworkAclId'] = nacl_id
-                params['RuleNumber'] = rule['RuleNumber']
-                params['Egress'] = Egress
-                delete_network_acl_entry(params, client, module)
-            changed = True
-        added_rules = [x for x in rules if x not in aws_rules]
-        if added_rules:
-            for rule in added_rules:
-                rule['NetworkAclId'] = nacl_id
-                create_network_acl_entry(rule, client, module)
-            changed = True
+    if removed_rules := [x for x in aws_rules if x not in rules]:
+        params = {}
+        for rule in removed_rules:
+            params['NetworkAclId'] = nacl_id
+            params['RuleNumber'] = rule['RuleNumber']
+            params['Egress'] = Egress
+            delete_network_acl_entry(params, client, module)
+        changed = True
+    if added_rules := [x for x in rules if x not in aws_rules]:
+        for rule in added_rules:
+            rule['NetworkAclId'] = nacl_id
+            create_network_acl_entry(rule, client, module)
+        changed = True
     return changed
 
 
@@ -297,27 +284,27 @@ def is_ipv6(cidr):
 
 
 def process_rule_entry(entry, Egress):
-    params = dict()
-    params['RuleNumber'] = entry[0]
-    params['Protocol'] = str(PROTOCOL_NUMBERS[entry[1]])
-    params['RuleAction'] = entry[2]
-    params['Egress'] = Egress
+    params = {
+        'RuleNumber': entry[0],
+        'Protocol': str(PROTOCOL_NUMBERS[entry[1]]),
+        'RuleAction': entry[2],
+        'Egress': Egress,
+    }
+
     if is_ipv6(entry[3]):
         params['Ipv6CidrBlock'] = entry[3]
     else:
         params['CidrBlock'] = entry[3]
     if icmp_present(entry):
         params['IcmpTypeCode'] = {"Type": int(entry[4]), "Code": int(entry[5])}
-    else:
-        if entry[6] or entry[7]:
-            params['PortRange'] = {"From": entry[6], 'To': entry[7]}
+    elif entry[6] or entry[7]:
+        params['PortRange'] = {"From": entry[6], 'To': entry[7]}
     return params
 
 
 def restore_default_associations(assoc_ids, default_nacl_id, client, module):
     if assoc_ids:
-        params = dict()
-        params['NetworkAclId'] = default_nacl_id[0]
+        params = {'NetworkAclId': default_nacl_id[0]}
         for assoc_id in assoc_ids:
             params['AssociationId'] = assoc_id
             restore_default_acl_association(params, client, module)
@@ -359,7 +346,7 @@ def setup_network_acl(client, module):
 
 def remove_network_acl(client, module):
     changed = False
-    result = dict()
+    result = {}
     nacl = describe_network_acl(client, module)
     if nacl['NetworkAcls']:
         nacl_id = nacl['NetworkAcls'][0]['NetworkAclId']
@@ -541,8 +528,7 @@ def _replace_network_acl_association(client, *args, **kwargs):
 
 
 def replace_network_acl_association(nacl_id, subnets, client, module):
-    params = dict()
-    params['NetworkAclId'] = nacl_id
+    params = {'NetworkAclId': nacl_id}
     for association in describe_acl_associations(subnets, client, module):
         params['AssociationId'] = association
         try:
@@ -605,20 +591,21 @@ def subnets_to_associate(nacl, client, module):
             all_found.extend(subnets.get('Subnets', []))
         except botocore.exceptions.ClientError as e:
             module.fail_json_aws(e)
-    return list(set(s['SubnetId'] for s in all_found if s.get('SubnetId')))
+    return list({s['SubnetId'] for s in all_found if s.get('SubnetId')})
 
 
 def main():
     argument_spec = dict(
-        vpc_id=dict(),
-        name=dict(),
-        nacl_id=dict(),
-        subnets=dict(required=False, type='list', default=list(), elements='str'),
+        vpc_id={},
+        name={},
+        nacl_id={},
+        subnets=dict(required=False, type='list', default=[], elements='str'),
         tags=dict(required=False, type='dict'),
-        ingress=dict(required=False, type='list', default=list(), elements='list'),
-        egress=dict(required=False, type='list', default=list(), elements='list'),
+        ingress=dict(required=False, type='list', default=[], elements='list'),
+        egress=dict(required=False, type='list', default=[], elements='list'),
         state=dict(default='present', choices=['present', 'absent']),
     )
+
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               supports_check_mode=True,
                               required_one_of=[['name', 'nacl_id']],

@@ -275,7 +275,7 @@ class AnsibleEc2Tgw(object):
         polling_increment_secs = 5
         wait_timeout = time() + wait_timeout
         status_achieved = False
-        transit_gateway = dict()
+        transit_gateway = {}
 
         while wait_timeout > time():
             try:
@@ -323,13 +323,22 @@ class AnsibleEc2Tgw(object):
         tgw = None
         tgws = []
 
-        if len(response.get('TransitGateways', [])) == 1 and tgw_id:
-            if (response['TransitGateways'][0]['State'] != 'deleted') or not skip_deleted:
-                tgws.extend(response['TransitGateways'])
+        if (
+            len(response.get('TransitGateways', [])) == 1
+            and tgw_id
+            and (
+                (response['TransitGateways'][0]['State'] != 'deleted')
+                or not skip_deleted
+            )
+        ):
+            tgws.extend(response['TransitGateways'])
 
-        for gateway in response.get('TransitGateways', []):
-            if description == gateway['Description'] and gateway['State'] != 'deleted':
-                tgws.append(gateway)
+        tgws.extend(
+            gateway
+            for gateway in response.get('TransitGateways', [])
+            if description == gateway['Description']
+            and gateway['State'] != 'deleted'
+        )
 
         if len(tgws) > 1:
             self._module.fail_json(
@@ -342,11 +351,7 @@ class AnsibleEc2Tgw(object):
 
     @staticmethod
     def enable_option_flag(flag):
-        disabled = "disable"
-        enabled = "enable"
-        if flag:
-            return enabled
-        return disabled
+        return "enable" if flag else "disable"
 
     def create_tgw(self, description):
         """
@@ -355,7 +360,7 @@ class AnsibleEc2Tgw(object):
         :param description: The description of the transit gateway.
         :return dict: transit gateway object
         """
-        options = dict()
+        options = {}
         wait = self._module.params.get('wait')
         wait_timeout = self._module.params.get('wait_timeout')
 
@@ -443,10 +448,7 @@ class AnsibleEc2Tgw(object):
         if to_delete:
             try:
                 if not self._check_mode:
-                    tags_list = []
-                    for key in to_delete:
-                        tags_list.append({'Key': key})
-
+                    tags_list = [{'Key': key} for key in to_delete]
                     AWSRetry.exponential_backoff()(self._connection.delete_tags)(
                         Resources=[tgw_id],
                         Tags=tags_list
@@ -485,7 +487,11 @@ class AnsibleEc2Tgw(object):
                 self._module.fail_json_aws(e, msg='Unable to create Transit Gateway')
 
         if self._module.params.get('tags') != tgw.get('tags'):
-            stringed_tags_dict = dict((to_text(k), to_text(v)) for k, v in self._module.params.get('tags').items())
+            stringed_tags_dict = {
+                to_text(k): to_text(v)
+                for k, v in self._module.params.get('tags').items()
+            }
+
             if self.ensure_tags(tgw['transit_gateway_id'], stringed_tags_dict, self._module.params.get('purge_tags')):
                 self._results['changed'] = True
 
@@ -535,20 +541,19 @@ def setup_module_object():
         dns_support=dict(type='bool', default='yes'),
         purge_tags=dict(type='bool', default='yes'),
         state=dict(default='present', choices=['present', 'absent']),
-        tags=dict(default=dict(), type='dict'),
+        tags=dict(default={}, type='dict'),
         transit_gateway_id=dict(type='str'),
         vpn_ecmp_support=dict(type='bool', default='yes'),
         wait=dict(type='bool', default='yes'),
-        wait_timeout=dict(type='int', default=300)
+        wait_timeout=dict(type='int', default=300),
     )
 
-    module = AnsibleAWSModule(
+
+    return AnsibleAWSModule(
         argument_spec=argument_spec,
         required_one_of=[('description', 'transit_gateway_id')],
         supports_check_mode=True,
     )
-
-    return module
 
 
 def main():

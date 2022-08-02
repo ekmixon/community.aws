@@ -417,7 +417,6 @@ def get_bucket_list(module, connection, name="", name_filter=""):
     :return:
     """
     buckets = []
-    filtered_buckets = []
     final_buckets = []
 
     # Get all buckets
@@ -426,21 +425,18 @@ def get_bucket_list(module, connection, name="", name_filter=""):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as err_code:
         module.fail_json_aws(err_code, msg="Failed to list buckets")
 
-    # Filter buckets if requested
-    if name_filter:
-        for bucket in buckets:
-            if name_filter in bucket['name']:
-                filtered_buckets.append(bucket)
-    elif name:
-        for bucket in buckets:
-            if name == bucket['name']:
-                filtered_buckets.append(bucket)
+    filtered_buckets = [
+        bucket
+        for bucket in buckets
+        if name_filter
+        and name_filter in bucket['name']
+        or not name_filter
+        and name
+        and name == bucket['name']
+    ]
 
     # Return proper list (filtered or all)
-    if name or name_filter:
-        final_buckets = filtered_buckets
-    else:
-        final_buckets = buckets
+    final_buckets = filtered_buckets if name or name_filter else buckets
     return(final_buckets)
 
 
@@ -465,22 +461,20 @@ def get_bucket_details(connection, name, requested_facts, transform_location):
 
     for key in requested_facts:
         if requested_facts[key]:
+            all_facts[key] = {}
             if key == 'bucket_location':
-                all_facts[key] = {}
                 try:
                     all_facts[key] = get_bucket_location(name, connection, transform_location)
                 # we just pass on error - error means that resources is undefined
                 except botocore.exceptions.ClientError:
                     pass
             elif key == 'bucket_tagging':
-                all_facts[key] = {}
                 try:
                     all_facts[key] = get_bucket_tagging(name, connection)
                 # we just pass on error - error means that resources is undefined
                 except botocore.exceptions.ClientError:
                     pass
             else:
-                all_facts[key] = {}
                 try:
                     all_facts[key] = get_bucket_property(name, connection, key)
                 # we just pass on error - error means that resources is undefined
@@ -520,8 +514,7 @@ def get_bucket_tagging(name, connection):
     data = connection.get_bucket_tagging(Bucket=name)
 
     try:
-        bucket_tags = boto3_tag_list_to_ansible_dict(data['TagSet'])
-        return(bucket_tags)
+        return boto3_tag_list_to_ansible_dict(data['TagSet'])
     except KeyError:
         # Strip response metadata (not needed)
         try:
@@ -536,7 +529,7 @@ def get_bucket_property(name, connection, get_api_name):
     """
     Get bucket property
     """
-    api_call = "get_" + get_api_name
+    api_call = f"get_{get_api_name}"
     api_function = getattr(connection, api_call)
     data = api_function(Bucket=name)
 
@@ -610,9 +603,7 @@ def main():
     elif name_filter:
         result['bucket_name_filter'] = name_filter
 
-    # Gather detailed information about buckets if requested
-    bucket_facts = module.params.get("bucket_facts")
-    if bucket_facts:
+    if bucket_facts := module.params.get("bucket_facts"):
         result['buckets'] = get_buckets_facts(connection, bucket_list, requested_facts, transform_location)
     else:
         result['buckets'] = bucket_list

@@ -254,7 +254,7 @@ from ansible_collections.amazon.aws.plugins.module_utils.ec2 import AWSRetry
 from ansible_collections.amazon.aws.plugins.module_utils.ec2 import boto3_tag_list_to_ansible_dict
 
 # Caching lookup for aliases
-_aliases = dict()
+_aliases = {}
 
 
 @AWSRetry.jittered_backoff(retries=5, delay=5, backoff=2.0)
@@ -325,9 +325,7 @@ def get_enable_key_rotation_with_backoff(connection, key_id):
 def canonicalize_alias_name(alias):
     if alias is None:
         return None
-    if alias.startswith('alias/'):
-        return alias
-    return 'alias/' + alias
+    return alias if alias.startswith('alias/') else f'alias/{alias}'
 
 
 def get_kms_tags(connection, module, key_id):
@@ -379,10 +377,11 @@ def key_matches_filter(key, filtr):
 
 
 def key_matches_filters(key, filters):
-    if not filters:
-        return True
-    else:
-        return all(key_matches_filter(key, filtr) for filtr in filters.items())
+    return (
+        all(key_matches_filter(key, filtr) for filtr in filters.items())
+        if filters
+        else True
+    )
 
 
 def get_key_details(connection, module, key_id, tokens=None):
@@ -424,14 +423,12 @@ def get_key_details(connection, module, key_id, tokens=None):
 def get_kms_info(connection, module):
     if module.params.get('key_id'):
         key_id = module.params.get('key_id')
-        details = get_key_details(connection, module, key_id)
-        if details:
+        if details := get_key_details(connection, module, key_id):
             return [details]
         return []
     elif module.params.get('alias'):
         alias = canonicalize_alias_name(module.params.get('alias'))
-        details = get_key_details(connection, module, alias)
-        if details:
+        if details := get_key_details(connection, module, alias):
             return [details]
         return []
     else:

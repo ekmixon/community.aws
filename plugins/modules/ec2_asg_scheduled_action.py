@@ -224,14 +224,12 @@ def get_scheduled_actions():
     except botocore.exceptions.ClientError as e:
         module.fail_json_aws(e)
 
-    current_actions = actions.get("ScheduledUpdateGroupActions")
-
-    return current_actions
+    return actions.get("ScheduledUpdateGroupActions")
 
 
 def put_scheduled_update_group_action(current_actions):
     changed = False
-    changes = dict()
+    changes = {}
     params = format_request()
 
     if len(current_actions) < 1:
@@ -293,7 +291,7 @@ def main():
     client = module.client('autoscaling', retry_decorator=AWSRetry.jittered_backoff())
     current_actions = get_scheduled_actions()
     state = module.params.get('state')
-    results = dict()
+    results = {}
 
     if state == 'present':
         changed = put_scheduled_update_group_action(current_actions)

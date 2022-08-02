@@ -197,7 +197,7 @@ def main():
             ) as e:
                 module.fail_json_aws(e, msg="trying to update target")
 
-    elif state == 'present' and not target_exists:
+    elif state == 'present':
         try:
             new_resource_group_arn = client.create_resource_group(
                 resourceGroupTags=tags,
@@ -234,7 +234,7 @@ def main():
         ) as e:
             module.fail_json_aws(e, msg="trying to delete target")
 
-    elif state == 'absent' and not target_exists:
+    elif state == 'absent':
         module.exit_json(changed=False)
 
 

@@ -431,17 +431,12 @@ class Condition(object):
 
     def format_for_update(self, condition_set_id):
         # Prep kwargs
-        kwargs = dict()
-        kwargs['Updates'] = list()
-
+        kwargs = {'Updates': []}
         for filtr in self.module.params.get('filters'):
             # Only for ip_set
             if self.type == 'ip':
                 # there might be a better way of detecting an IPv6 address
-                if ':' in filtr.get('ip_address'):
-                    ip_type = 'IPV6'
-                else:
-                    ip_type = 'IPV4'
+                ip_type = 'IPV6' if ':' in filtr.get('ip_address') else 'IPV4'
                 condition_insert = {'Type': ip_type, 'Value': filtr.get('ip_address')}
 
             # Specific for geo_match_set
@@ -458,7 +453,7 @@ class Condition(object):
                     if filtr.get('header'):
                         condition_insert['FieldToMatch']['Data'] = filtr.get('header').lower()
                     else:
-                        self.module.fail_json(msg=str("DATA required when HEADER requested"))
+                        self.module.fail_json(msg="DATA required when HEADER requested")
 
             # Specific for byte_match_set
             if self.type == 'byte':
@@ -510,7 +505,11 @@ class Condition(object):
 
     def get_regex_pattern_by_name(self, name):
         existing_regex_patterns = self.list_regex_patterns()
-        regex_lookup = dict((item['Name'], item['RegexPatternSetId']) for item in existing_regex_patterns)
+        regex_lookup = {
+            item['Name']: item['RegexPatternSetId']
+            for item in existing_regex_patterns
+        }
+
         if name in regex_lookup:
             return self.get_regex_pattern_set_with_backoff(regex_lookup[name])['RegexPatternSet']
         else:
@@ -537,9 +536,13 @@ class Condition(object):
     def delete_unused_regex_pattern(self, regex_pattern_set_id):
         try:
             regex_pattern_set = self.client.get_regex_pattern_set(RegexPatternSetId=regex_pattern_set_id)['RegexPatternSet']
-            updates = list()
-            for regex_pattern_string in regex_pattern_set['RegexPatternStrings']:
-                updates.append({'Action': 'DELETE', 'RegexPatternString': regex_pattern_string})
+            updates = [
+                {'Action': 'DELETE', 'RegexPatternString': regex_pattern_string}
+                for regex_pattern_string in regex_pattern_set[
+                    'RegexPatternStrings'
+                ]
+            ]
+
             run_func_with_change_token_backoff(self.client, self.module,
                                                {'RegexPatternSetId': regex_pattern_set_id, 'Updates': updates},
                                                self.client.update_regex_pattern_set)
@@ -553,15 +556,15 @@ class Condition(object):
             self.module.fail_json_aws(e, msg='Could not delete regex pattern')
 
     def get_condition_by_name(self, name):
-        all_conditions = [d for d in self.list_conditions() if d['Name'] == name]
-        if all_conditions:
+        if all_conditions := [
+            d for d in self.list_conditions() if d['Name'] == name
+        ]:
             return all_conditions[0][self.conditionsetid]
 
     @AWSRetry.exponential_backoff()
     def get_condition_by_id_with_backoff(self, condition_set_id):
-        params = dict()
-        params[self.conditionsetid] = condition_set_id
-        func = getattr(self.client, 'get_' + self.method_suffix)
+        params = {self.conditionsetid: condition_set_id}
+        func = getattr(self.client, f'get_{self.method_suffix}')
         return func(**params)[self.conditionset]
 
     def get_condition_by_id(self, condition_set_id):
@@ -571,7 +574,7 @@ class Condition(object):
             self.module.fail_json_aws(e, msg='Could not get condition')
 
     def list_conditions(self):
-        method = 'list_' + self.method_suffix + 's'
+        method = f'list_{self.method_suffix}s'
         try:
             paginator = self.client.get_paginator(method)
             func = paginator.paginate().build_full_result
@@ -581,11 +584,11 @@ class Condition(object):
         try:
             return func()[self.conditionsets]
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-            self.module.fail_json_aws(e, msg='Could not list %s conditions' % self.type)
+            self.module.fail_json_aws(e, msg=f'Could not list {self.type} conditions')
 
     def tidy_up_regex_patterns(self, regex_match_set):
         all_regex_match_sets = self.list_conditions()
-        all_match_set_patterns = list()
+        all_match_set_patterns = []
         for rms in all_regex_match_sets:
             all_match_set_patterns.extend(conditiontuple['RegexPatternSetId']
                                           for conditiontuple in self.get_condition_by_id(rms[self.conditionsetid])[self.conditiontuples])
@@ -613,21 +616,23 @@ class Condition(object):
 
     def find_and_delete_condition(self, condition_set_id):
         current_condition = self.get_condition_by_id(condition_set_id)
-        in_use_rules = self.find_condition_in_rules(condition_set_id)
-        if in_use_rules:
+        if in_use_rules := self.find_condition_in_rules(condition_set_id):
             rulenames = ', '.join(in_use_rules)
-            self.module.fail_json(msg="Condition %s is in use by %s" % (current_condition['Name'], rulenames))
+            self.module.fail_json(
+                msg=f"Condition {current_condition['Name']} is in use by {rulenames}"
+            )
+
         if current_condition[self.conditiontuples]:
             # Filters are deleted using update with the DELETE action
-            func = getattr(self.client, 'update_' + self.method_suffix)
+            func = getattr(self.client, f'update_{self.method_suffix}')
             params = self.format_for_deletion(current_condition)
             try:
                 # We do not need to wait for the conditiontuple delete because we wait later for the delete_* call
                 run_func_with_change_token_backoff(self.client, self.module, params, func)
             except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
                 self.module.fail_json_aws(e, msg='Could not delete filters from condition')
-        func = getattr(self.client, 'delete_' + self.method_suffix)
-        params = dict()
+        func = getattr(self.client, f'delete_{self.method_suffix}')
+        params = {}
         params[self.conditionsetid] = condition_set_id
         try:
             run_func_with_change_token_backoff(self.client, self.module, params, func, wait=True)
@@ -664,7 +669,7 @@ class Condition(object):
         changed = bool(missing or extra)
         if changed:
             update['Updates'] = missing + extra
-            func = getattr(self.client, 'update_' + self.method_suffix)
+            func = getattr(self.client, f'update_{self.method_suffix}')
             try:
                 result = run_func_with_change_token_backoff(self.client, self.module, update, func, wait=True)
             except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
@@ -673,42 +678,58 @@ class Condition(object):
 
     def ensure_condition_present(self):
         name = self.module.params['name']
-        condition_set_id = self.get_condition_by_name(name)
-        if condition_set_id:
+        if condition_set_id := self.get_condition_by_name(name):
             return self.find_and_update_condition(condition_set_id)
-        else:
-            params = dict()
-            params['Name'] = name
-            func = getattr(self.client, 'create_' + self.method_suffix)
-            try:
-                condition = run_func_with_change_token_backoff(self.client, self.module, params, func)
-            except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                self.module.fail_json_aws(e, msg='Could not create condition')
-            return self.find_and_update_condition(condition[self.conditionset][self.conditionsetid])
+        params = {}
+        params['Name'] = name
+        func = getattr(self.client, f'create_{self.method_suffix}')
+        try:
+            condition = run_func_with_change_token_backoff(self.client, self.module, params, func)
+        except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+            self.module.fail_json_aws(e, msg='Could not create condition')
+        return self.find_and_update_condition(condition[self.conditionset][self.conditionsetid])
 
     def ensure_condition_absent(self):
-        condition_set_id = self.get_condition_by_name(self.module.params['name'])
-        if condition_set_id:
+        if condition_set_id := self.get_condition_by_name(
+            self.module.params['name']
+        ):
             return self.find_and_delete_condition(condition_set_id)
         return False, {}
 
 
 def main():
     filters_subspec = dict(
-        country=dict(),
-        field_to_match=dict(choices=['uri', 'query_string', 'header', 'method', 'body']),
-        header=dict(),
-        transformation=dict(choices=['none', 'compress_white_space',
-                                     'html_entity_decode', 'lowercase',
-                                     'cmd_line', 'url_decode']),
-        position=dict(choices=['exactly', 'starts_with', 'ends_with',
-                               'contains', 'contains_word']),
+        country={},
+        field_to_match=dict(
+            choices=['uri', 'query_string', 'header', 'method', 'body']
+        ),
+        header={},
+        transformation=dict(
+            choices=[
+                'none',
+                'compress_white_space',
+                'html_entity_decode',
+                'lowercase',
+                'cmd_line',
+                'url_decode',
+            ]
+        ),
+        position=dict(
+            choices=[
+                'exactly',
+                'starts_with',
+                'ends_with',
+                'contains',
+                'contains_word',
+            ]
+        ),
         comparison=dict(choices=['EQ', 'NE', 'LE', 'LT', 'GE', 'GT']),
-        target_string=dict(),  # Bytes
+        target_string={},
         size=dict(type='int'),
-        ip_address=dict(),
-        regex_pattern=dict(),
+        ip_address={},
+        regex_pattern={},
     )
+
     argument_spec = dict(
         name=dict(required=True),
         type=dict(required=True, choices=['byte', 'geo', 'ip', 'regex', 'size', 'sql', 'xss']),
@@ -721,7 +742,7 @@ def main():
                               required_if=[['state', 'present', ['filters']]])
     state = module.params.get('state')
 
-    resource = 'waf' if not module.params['waf_regional'] else 'waf-regional'
+    resource = 'waf-regional' if module.params['waf_regional'] else 'waf'
     client = module.client(resource)
 
     condition = Condition(client, module)

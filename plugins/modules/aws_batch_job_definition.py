@@ -266,9 +266,15 @@ def get_current_job_definition(module, batch_client):
         )
         if len(environments['jobDefinitions']) > 0:
             latest_revision = max(map(lambda d: d['revision'], environments['jobDefinitions']))
-            latest_definition = next((x for x in environments['jobDefinitions'] if x['revision'] == latest_revision),
-                                     None)
-            return latest_definition
+            return next(
+                (
+                    x
+                    for x in environments['jobDefinitions']
+                    if x['revision'] == latest_revision
+                ),
+                None,
+            )
+
         return None
     except ClientError:
         return None
@@ -317,10 +323,10 @@ def get_base_params():
 
 
 def get_compute_environment_order_list(module):
-    compute_environment_order_list = []
-    for ceo in module.params['compute_environment_order']:
-        compute_environment_order_list.append(dict(order=ceo['order'], computeEnvironment=ceo['compute_environment']))
-    return compute_environment_order_list
+    return [
+        dict(order=ceo['order'], computeEnvironment=ceo['compute_environment'])
+        for ceo in module.params['compute_environment_order']
+    ]
 
 
 def remove_job_definition(module, batch_client):
@@ -344,17 +350,18 @@ def remove_job_definition(module, batch_client):
 
 
 def job_definition_equal(module, current_definition):
-    equal = True
-
-    for param in get_base_params():
-        if module.params.get(param) != current_definition.get(cc(param)):
-            equal = False
-            break
-
-    for param in get_container_property_params():
-        if module.params.get(param) != current_definition.get('containerProperties').get(cc(param)):
-            equal = False
-            break
+    equal = next(
+        (
+            False
+            for param in get_container_property_params()
+            if module.params.get(param)
+            != current_definition.get('containerProperties').get(cc(param))
+        ),
+        all(
+            module.params.get(param) == current_definition.get(cc(param))
+            for param in get_base_params()
+        ),
+    )
 
     for param in get_retry_strategy_params():
         if module.params.get(param) != current_definition.get('retryStrategy').get(cc(param)):
@@ -366,7 +373,6 @@ def job_definition_equal(module, current_definition):
 
 def manage_state(module, batch_client):
     changed = False
-    current_state = 'absent'
     state = module.params['state']
     job_definition_name = module.params['job_definition_name']
     action_taken = 'none'
@@ -376,9 +382,7 @@ def manage_state(module, batch_client):
 
     # check if the job definition exists
     current_job_definition = get_current_job_definition(module, batch_client)
-    if current_job_definition:
-        current_state = 'present'
-
+    current_state = 'present' if current_job_definition else 'absent'
     if state == 'present':
         if current_state == 'present':
             # check if definition has changed and register a new version if necessary
@@ -394,11 +398,10 @@ def manage_state(module, batch_client):
         response = get_current_job_definition(module, batch_client)
         if not response:
             module.fail_json(msg='Unable to get job definition information after creating/updating')
-    else:
-        if current_state == 'present':
-            # remove the Job definition
-            changed = remove_job_definition(module, batch_client)
-            action_taken = 'deregistered'
+    elif current_state == 'present':
+        # remove the Job definition
+        changed = remove_job_definition(module, batch_client)
+        action_taken = 'deregistered'
     return dict(changed=changed, batch_job_definition_action=action_taken, response=response)
 
 
@@ -416,25 +419,28 @@ def main():
     """
 
     argument_spec = dict(
-        state=dict(required=False, default='present', choices=['present', 'absent']),
+        state=dict(
+            required=False, default='present', choices=['present', 'absent']
+        ),
         job_definition_name=dict(required=True),
-        job_definition_arn=dict(),
+        job_definition_arn={},
         type=dict(required=True),
         parameters=dict(type='dict'),
         image=dict(required=True),
         vcpus=dict(type='int', required=True),
         memory=dict(type='int', required=True),
         command=dict(type='list', default=[], elements='str'),
-        job_role_arn=dict(),
+        job_role_arn={},
         volumes=dict(type='list', default=[], elements='dict'),
         environment=dict(type='list', default=[], elements='dict'),
         mount_points=dict(type='list', default=[], elements='dict'),
-        readonly_root_filesystem=dict(),
-        privileged=dict(),
+        readonly_root_filesystem={},
+        privileged={},
         ulimits=dict(type='list', default=[], elements='dict'),
-        user=dict(),
-        attempts=dict(type='int')
+        user={},
+        attempts=dict(type='int'),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

@@ -51,7 +51,7 @@ def wafv2_snake_dict_to_camel_dict(a):
         if isinstance(a.get(item), dict):
             if 'Ip' in item:
                 retval[item.replace('Ip', 'IP')] = wafv2_snake_dict_to_camel_dict(a.get(item))
-            elif 'Arn' == item:
+            elif item == 'Arn':
                 retval['ARN'] = wafv2_snake_dict_to_camel_dict(a.get(item))
             else:
                 retval[item] = wafv2_snake_dict_to_camel_dict(a.get(item))
@@ -61,7 +61,7 @@ def wafv2_snake_dict_to_camel_dict(a):
                 retval[item].append(wafv2_snake_dict_to_camel_dict(a.get(item)[idx]))
         elif 'Ip' in item:
             retval[item.replace('Ip', 'IP')] = a.get(item)
-        elif 'Arn' == item:
+        elif item == 'Arn':
             retval['ARN'] = a.get(item)
         else:
             retval[item] = a.get(item)

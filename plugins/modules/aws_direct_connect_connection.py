@@ -194,10 +194,13 @@ def connection_exists(client, connection_id=None, connection_name=None, verify=T
 
     # look for matching connections
 
-    if len(response.get('connections', [])) == 1 and connection_id:
-        if response['connections'][0]['connectionState'] != 'deleted':
-            match.append(response['connections'][0]['connectionId'])
-            connection.extend(response['connections'])
+    if (
+        len(response.get('connections', [])) == 1
+        and connection_id
+        and response['connections'][0]['connectionState'] != 'deleted'
+    ):
+        match.append(response['connections'][0]['connectionId'])
+        connection.extend(response['connections'])
 
     for conn in response.get('connections', []):
         if connection_name == conn['connectionName'] and conn['connectionState'] != 'deleted':
@@ -255,24 +258,21 @@ def update_associations(client, latest_state, connection_id, lag_id):
 
 
 def ensure_present(client, connection_id, connection_name, location, bandwidth, lag_id, forced_update):
-    # the connection is found; get the latest state and see if it needs to be updated
-    if connection_id:
-        latest_state = connection_status(client, connection_id=connection_id)['connection']
-        if changed_properties(latest_state, location, bandwidth) and forced_update:
-            ensure_absent(client, connection_id)
-            return ensure_present(client=client,
-                                  connection_id=None,
-                                  connection_name=connection_name,
-                                  location=location,
-                                  bandwidth=bandwidth,
-                                  lag_id=lag_id,
-                                  forced_update=forced_update)
-        elif update_associations(client, latest_state, connection_id, lag_id):
-            return True, connection_id
-
-    # no connection found; create a new one
-    else:
+    if not connection_id:
         return True, create_connection(client, location, bandwidth, connection_name, lag_id)
+
+    latest_state = connection_status(client, connection_id=connection_id)['connection']
+    if changed_properties(latest_state, location, bandwidth) and forced_update:
+        ensure_absent(client, connection_id)
+        return ensure_present(client=client,
+                              connection_id=None,
+                              connection_name=connection_name,
+                              location=location,
+                              bandwidth=bandwidth,
+                              lag_id=lag_id,
+                              forced_update=forced_update)
+    elif update_associations(client, latest_state, connection_id, lag_id):
+        return True, connection_id
 
     return False, connection_id
 
@@ -290,13 +290,14 @@ def ensure_absent(client, connection_id):
 def main():
     argument_spec = dict(
         state=dict(required=True, choices=['present', 'absent']),
-        name=dict(),
-        location=dict(),
+        name={},
+        location={},
         bandwidth=dict(choices=['1Gbps', '10Gbps']),
-        link_aggregation_group=dict(),
-        connection_id=dict(),
-        forced_update=dict(type='bool', default=False)
+        link_aggregation_group={},
+        connection_id={},
+        forced_update=dict(type='bool', default=False),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

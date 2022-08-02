@@ -235,7 +235,7 @@ def get_verification_attributes(connection, module, identity, retries=0, retryDe
     # Don't want this complexity exposed users of the module as they'd have to retry to ensure
     # a consistent return from the module.
     # To avoid this we have an internal retry that we use only after registering the identity.
-    for attempt in range(0, retries + 1):
+    for _ in range(retries + 1):
         try:
             response = connection.get_identity_verification_attributes(Identities=[identity], aws_retry=True)
         except (BotoCoreError, ClientError) as e:
@@ -256,32 +256,24 @@ def get_identity_notifications(connection, module, identity, retries=0, retryDel
     # a consistent return from the module.
     # To avoid this we have an internal retry that we use only when getting the current notification
     # status for return.
-    for attempt in range(0, retries + 1):
+    for _ in range(retries + 1):
         try:
             response = connection.get_identity_notification_attributes(Identities=[identity], aws_retry=True)
         except (BotoCoreError, ClientError) as e:
             module.fail_json_aws(e, msg='Failed to retrieve identity notification attributes for {identity}'.format(identity=identity))
         notification_attributes = response['NotificationAttributes']
 
-        # No clear AWS docs on when this happens, but it appears sometimes identities are not included in
-        # in the notification attributes when the identity is first registered. Suspect that this is caused by
-        # eventual consistency within the AWS services. It's been observed in builds so we need to handle it.
-        #
-        # When this occurs, just return None and we'll assume no identity notification settings have been changed
-        # from the default which is reasonable if this is just eventual consistency on creation.
-        # See: https://github.com/ansible/ansible/issues/36065
         if identity in notification_attributes:
             break
-        else:
-            # Paranoia check for coding errors, we only requested one identity, so if we get a different one
-            # something has gone very wrong.
-            if len(notification_attributes) != 0:
-                module.fail_json(
-                    msg='Unexpected identity found in notification attributes, expected {0} but got {1!r}.'.format(
-                        identity,
-                        notification_attributes.keys(),
-                    )
+        # Paranoia check for coding errors, we only requested one identity, so if we get a different one
+        # something has gone very wrong.
+        if len(notification_attributes) != 0:
+            module.fail_json(
+                msg='Unexpected identity found in notification attributes, expected {0} but got {1!r}.'.format(
+                    identity,
+                    notification_attributes.keys(),
                 )
+            )
         time.sleep(retryDelay)
     if identity not in notification_attributes:
         return None
@@ -289,28 +281,25 @@ def get_identity_notifications(connection, module, identity, retries=0, retryDel
 
 
 def desired_topic(module, notification_type):
-    arg_dict = module.params.get(notification_type.lower() + '_notifications')
-    if arg_dict:
+    if arg_dict := module.params.get(
+        f'{notification_type.lower()}_notifications'
+    ):
         return arg_dict.get('topic', None)
     else:
         return None
 
 
 def update_notification_topic(connection, module, identity, identity_notifications, notification_type):
-    topic_key = notification_type + 'Topic'
-    if identity_notifications is None:
+    topic_key = f'{notification_type}Topic'
+    if (
+        identity_notifications is None
+        or topic_key not in identity_notifications
+    ):
         # If there is no configuration for notifications cannot be being sent to topics
         # hence assume None as the current state.
         current = None
-    elif topic_key in identity_notifications:
-        current = identity_notifications[topic_key]
     else:
-        # If there is information on the notifications setup but no information on the
-        # particular notification topic it's pretty safe to assume there's no topic for
-        # this notification. AWS API docs suggest this information will always be
-        # included but best to be defensive
-        current = None
-
+        current = identity_notifications[topic_key]
     required = desired_topic(module, notification_type)
 
     if current != required:
@@ -327,20 +316,17 @@ def update_notification_topic(connection, module, identity, identity_notificatio
 
 
 def update_notification_topic_headers(connection, module, identity, identity_notifications, notification_type):
-    arg_dict = module.params.get(notification_type.lower() + '_notifications')
-    header_key = 'HeadersIn' + notification_type + 'NotificationsEnabled'
-    if identity_notifications is None:
+    arg_dict = module.params.get(f'{notification_type.lower()}_notifications')
+    header_key = f'HeadersIn{notification_type}NotificationsEnabled'
+    if (
+        identity_notifications is None
+        or header_key not in identity_notifications
+    ):
         # If there is no configuration for topic notifications, headers cannot be being
         # forwarded, hence assume false.
         current = False
-    elif header_key in identity_notifications:
-        current = identity_notifications[header_key]
     else:
-        # AWS API doc indicates that the headers in fields are optional. Unfortunately
-        # it's not clear on what this means. But it's a pretty safe assumption that it means
-        # headers are not included since most API consumers would interpret absence as false.
-        current = False
-
+        current = identity_notifications[header_key]
     if arg_dict is not None and 'include_headers' in arg_dict:
         required = arg_dict['include_headers']
     else:
@@ -391,11 +377,11 @@ def create_mock_notifications_response(module):
         "ForwardingEnabled": module.params.get('feedback_forwarding'),
     }
     for notification_type in ('Bounce', 'Complaint', 'Delivery'):
-        arg_dict = module.params.get(notification_type.lower() + '_notifications')
+        arg_dict = module.params.get(f'{notification_type.lower()}_notifications')
         if arg_dict is not None and 'topic' in arg_dict:
-            resp[notification_type + 'Topic'] = arg_dict['topic']
+            resp[f'{notification_type}Topic'] = arg_dict['topic']
 
-        header_key = 'HeadersIn' + notification_type + 'NotificationsEnabled'
+        header_key = f'HeadersIn{notification_type}NotificationsEnabled'
         if arg_dict is not None and 'include_headers' in arg_dict:
             resp[header_key] = arg_dict['include_headers']
         else:
@@ -423,10 +409,11 @@ def update_identity_notifications(connection, module):
 
 
 def validate_params_for_identity_present(module):
-    if module.params.get('feedback_forwarding') is False:
-        if not (desired_topic(module, 'Bounce') and desired_topic(module, 'Complaint')):
-            module.fail_json(msg="Invalid Parameter Value 'False' for 'feedback_forwarding'. AWS requires "
-                             "feedback forwarding to be enabled unless bounces and complaints are handled by SNS topics")
+    if module.params.get('feedback_forwarding') is False and not (
+        desired_topic(module, 'Bounce') and desired_topic(module, 'Complaint')
+    ):
+        module.fail_json(msg="Invalid Parameter Value 'False' for 'feedback_forwarding'. AWS requires "
+                         "feedback forwarding to be enabled unless bounces and complaints are handled by SNS topics")
 
 
 def create_or_update_identity(connection, module, region, account_id):
@@ -450,8 +437,14 @@ def create_or_update_identity(connection, module, region, account_id):
             verification_attributes = get_verification_attributes(connection, module, identity, retries=4)
         changed = True
     elif verification_attributes['VerificationStatus'] not in ('Pending', 'Success'):
-        module.fail_json(msg="Identity " + identity + " in bad status " + verification_attributes['VerificationStatus'],
-                         verification_attributes=camel_dict_to_snake_dict(verification_attributes))
+        module.fail_json(
+            msg=f"Identity {identity} in bad status "
+            + verification_attributes['VerificationStatus'],
+            verification_attributes=camel_dict_to_snake_dict(
+                verification_attributes
+            ),
+        )
+
 
     if verification_attributes is None:
         module.fail_json(msg='Unable to load identity verification attributes after registering identity.')
@@ -462,7 +455,7 @@ def create_or_update_identity(connection, module, region, account_id):
     if notification_attributes is None:
         module.fail_json(msg='Unable to load identity notification attributes.')
 
-    identity_arn = 'arn:aws:ses:' + region + ':' + account_id + ':identity/' + identity
+    identity_arn = f'arn:aws:ses:{region}:{account_id}:identity/{identity}'
 
     module.exit_json(
         changed=changed,
@@ -514,12 +507,17 @@ def main():
     )
 
     for notification_type in ('bounce', 'complaint', 'delivery'):
-        param_name = notification_type + '_notifications'
-        arg_dict = module.params.get(param_name)
-        if arg_dict:
-            extra_keys = [x for x in arg_dict.keys() if x not in ('topic', 'include_headers')]
-            if extra_keys:
-                module.fail_json(msg='Unexpected keys ' + str(extra_keys) + ' in ' + param_name + ' valid keys are topic or include_headers')
+        param_name = f'{notification_type}_notifications'
+        if arg_dict := module.params.get(param_name):
+            if extra_keys := [
+                x
+                for x in arg_dict.keys()
+                if x not in ('topic', 'include_headers')
+            ]:
+                module.fail_json(
+                    msg=f'Unexpected keys {extra_keys} in {param_name} valid keys are topic or include_headers'
+                )
+
 
     # SES APIs seem to have a much lower throttling threshold than most of the rest of the AWS APIs.
     # Docs say 1 call per second. This shouldn't actually be a big problem for normal usage, but

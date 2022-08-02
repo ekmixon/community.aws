@@ -1415,10 +1415,7 @@ def merge_validation_into_config(config, validated_node, node_name):
     if validated_node is not None:
         if isinstance(validated_node, dict):
             config_node = config.get(node_name)
-            if config_node is not None:
-                config_node_items = list(config_node.items())
-            else:
-                config_node_items = []
+            config_node_items = [] if config_node is None else list(config_node.items())
             config[node_name] = dict(config_node_items + list(validated_node.items()))
         if isinstance(validated_node, list):
             config[node_name] = list(set(config.get(node_name) + validated_node))
@@ -1442,14 +1439,13 @@ def create_distribution(client, module, config, tags):
     try:
         if not tags:
             return client.create_distribution(aws_retry=True, DistributionConfig=config)['Distribution']
-        else:
-            distribution_config_with_tags = {
-                'DistributionConfig': config,
-                'Tags': {
-                    'Items': tags
-                }
+        distribution_config_with_tags = {
+            'DistributionConfig': config,
+            'Tags': {
+                'Items': tags
             }
-            return client.create_distribution_with_tags(aws_retry=True, DistributionConfigWithTags=distribution_config_with_tags)['Distribution']
+        }
+        return client.create_distribution_with_tags(aws_retry=True, DistributionConfigWithTags=distribution_config_with_tags)['Distribution']
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Error creating distribution")
 
@@ -1458,14 +1454,19 @@ def delete_distribution(client, module, distribution):
     try:
         return client.delete_distribution(aws_retry=True, Id=distribution['Distribution']['Id'], IfMatch=distribution['ETag'])
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-        module.fail_json_aws(e, msg="Error deleting distribution %s" % to_native(distribution['Distribution']))
+        module.fail_json_aws(
+            e,
+            msg=f"Error deleting distribution {to_native(distribution['Distribution'])}",
+        )
 
 
 def update_distribution(client, module, config, distribution_id, e_tag):
     try:
         return client.update_distribution(aws_retry=True, DistributionConfig=config, Id=distribution_id, IfMatch=e_tag)['Distribution']
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-        module.fail_json_aws(e, msg="Error updating distribution to %s" % to_native(config))
+        module.fail_json_aws(
+            e, msg=f"Error updating distribution to {to_native(config)}"
+        )
 
 
 def tag_resource(client, module, arn, tags):
@@ -1532,85 +1533,71 @@ class CloudFrontValidationManager(object):
         self.__default_cache_behavior_forwarded_values_forward_cookies = 'none'
         self.__default_cache_behavior_forwarded_values_query_string = True
         self.__default_trusted_signers_enabled = False
-        self.__valid_price_classes = set([
+        self.__valid_price_classes = {
             'PriceClass_100',
             'PriceClass_200',
-            'PriceClass_All'
-        ])
-        self.__valid_origin_protocol_policies = set([
+            'PriceClass_All',
+        }
+
+        self.__valid_origin_protocol_policies = {
             'http-only',
             'match-viewer',
-            'https-only'
-        ])
-        self.__valid_origin_ssl_protocols = set([
-            'SSLv3',
-            'TLSv1',
-            'TLSv1.1',
-            'TLSv1.2'
-        ])
-        self.__valid_cookie_forwarding = set([
-            'none',
-            'whitelist',
-            'all'
-        ])
-        self.__valid_viewer_protocol_policies = set([
+            'https-only',
+        }
+
+        self.__valid_origin_ssl_protocols = {'SSLv3', 'TLSv1', 'TLSv1.1', 'TLSv1.2'}
+        self.__valid_cookie_forwarding = {'none', 'whitelist', 'all'}
+        self.__valid_viewer_protocol_policies = {
             'allow-all',
             'https-only',
-            'redirect-to-https'
-        ])
-        self.__valid_methods = set([
+            'redirect-to-https',
+        }
+
+        self.__valid_methods = {
             'GET',
             'HEAD',
             'POST',
             'PUT',
             'PATCH',
             'OPTIONS',
-            'DELETE'
-        ])
+            'DELETE',
+        }
+
         self.__valid_methods_cached_methods = [
-            set([
-                'GET',
-                'HEAD'
-            ]),
-            set([
-                'GET',
-                'HEAD',
-                'OPTIONS'
-            ])
+            {'GET', 'HEAD'},
+            {'GET', 'HEAD', 'OPTIONS'},
         ]
+
         self.__valid_methods_allowed_methods = [
             self.__valid_methods_cached_methods[0],
             self.__valid_methods_cached_methods[1],
             self.__valid_methods
         ]
-        self.__valid_lambda_function_association_event_types = set([
+        self.__valid_lambda_function_association_event_types = {
             'viewer-request',
             'viewer-response',
             'origin-request',
-            'origin-response'
-        ])
-        self.__valid_viewer_certificate_ssl_support_methods = set([
-            'sni-only',
-            'vip'
-        ])
-        self.__valid_viewer_certificate_minimum_protocol_versions = set([
+            'origin-response',
+        }
+
+        self.__valid_viewer_certificate_ssl_support_methods = {'sni-only', 'vip'}
+        self.__valid_viewer_certificate_minimum_protocol_versions = {
             'SSLv3',
             'TLSv1',
             'TLSv1_2016',
             'TLSv1.1_2016',
             'TLSv1.2_2018',
             'TLSv1.2_2019',
-            'TLSv1.2_2021'
-        ])
-        self.__valid_viewer_certificate_certificate_sources = set([
+            'TLSv1.2_2021',
+        }
+
+        self.__valid_viewer_certificate_certificate_sources = {
             'cloudfront',
             'iam',
-            'acm'
-        ])
-        self.__valid_http_versions = set([
-            'http1.1',
-            'http2'
-        ])
+            'acm',
+        }
+
+        self.__valid_http_versions = {'http1.1', 'http2'}
         self.__s3_bucket_domain_identifier = '.s3.amazonaws.com'
 
     def add_missing_key(self, dict_object, key_to_set, value_to_set):
@@ -1628,21 +1615,24 @@ class CloudFrontValidationManager(object):
     def add_key_else_validate(self, dict_object, key_name, attribute_name, value_to_set, valid_values, to_aws_list=False):
         if key_name in dict_object:
             self.validate_attribute_with_allowed_values(value_to_set, attribute_name, valid_values)
-        else:
-            if to_aws_list:
-                dict_object[key_name] = ansible_list_to_cloudfront_list(value_to_set)
-            elif value_to_set is not None:
-                dict_object[key_name] = value_to_set
+        elif to_aws_list:
+            dict_object[key_name] = ansible_list_to_cloudfront_list(value_to_set)
+        elif value_to_set is not None:
+            dict_object[key_name] = value_to_set
         return dict_object
 
     def validate_logging(self, logging):
         try:
             if logging is None:
                 return None
-            valid_logging = {}
-            if logging and not set(['enabled', 'include_cookies', 'bucket', 'prefix']).issubset(logging):
+            if logging and not {
+                'enabled',
+                'include_cookies',
+                'bucket',
+                'prefix',
+            }.issubset(logging):
                 self.module.fail_json(msg="The logging parameters enabled, include_cookies, bucket and prefix must be specified.")
-            valid_logging['include_cookies'] = logging.get('include_cookies')
+            valid_logging = {'include_cookies': logging.get('include_cookies')}
             valid_logging['enabled'] = logging.get('enabled')
             valid_logging['bucket'] = logging.get('bucket')
             valid_logging['prefix'] = logging.get('prefix')
@@ -1652,21 +1642,20 @@ class CloudFrontValidationManager(object):
 
     def validate_is_list(self, list_to_validate, list_name):
         if not isinstance(list_to_validate, list):
-            self.module.fail_json(msg='%s is of type %s. Must be a list.' % (list_name, type(list_to_validate).__name__))
+            self.module.fail_json(
+                msg=f'{list_name} is of type {type(list_to_validate).__name__}. Must be a list.'
+            )
 
     def validate_required_key(self, key_name, full_key_name, dict_object):
         if key_name not in dict_object:
-            self.module.fail_json(msg="%s must be specified." % full_key_name)
+            self.module.fail_json(msg=f"{full_key_name} must be specified.")
 
     def validate_origins(self, client, config, origins, default_origin_domain_name,
                          default_origin_path, create_distribution, purge_origins=False):
         try:
             if origins is None:
                 if default_origin_domain_name is None and not create_distribution:
-                    if purge_origins:
-                        return None
-                    else:
-                        return ansible_list_to_cloudfront_list(config)
+                    return None if purge_origins else ansible_list_to_cloudfront_list(config)
                 if default_origin_domain_name is not None:
                     origins = [{
                         'domain_name': default_origin_domain_name,
@@ -1678,7 +1667,7 @@ class CloudFrontValidationManager(object):
             if not origins and default_origin_domain_name is None and create_distribution:
                 self.module.fail_json(msg="Both origins[] and default_origin_domain_name have not been specified. Please specify at least one.")
             all_origins = OrderedDict()
-            new_domains = list()
+            new_domains = []
             for origin in config:
                 all_origins[origin.get('domain_name')] = origin
             for origin in origins:
@@ -1701,14 +1690,18 @@ class CloudFrontValidationManager(object):
             return existing_config['s3_origin_config']['origin_access_identity']
 
         try:
-            comment = "access-identity-by-ansible-%s-%s" % (origin.get('domain_name'), self.__default_datetime_string)
-            caller_reference = "%s-%s" % (origin.get('domain_name'), self.__default_datetime_string)
+            comment = f"access-identity-by-ansible-{origin.get('domain_name')}-{self.__default_datetime_string}"
+
+            caller_reference = (
+                f"{origin.get('domain_name')}-{self.__default_datetime_string}"
+            )
+
             cfoai_config = dict(CloudFrontOriginAccessIdentityConfig=dict(CallerReference=caller_reference,
                                                                           Comment=comment))
             oai = client.create_cloud_front_origin_access_identity(**cfoai_config)['CloudFrontOriginAccessIdentity']['Id']
         except Exception as e:
             self.module.fail_json_aws(e, msg="Couldn't create Origin Access Identity for id %s" % origin['id'])
-        return "origin-access-identity/cloudfront/%s" % oai
+        return f"origin-access-identity/cloudfront/{oai}"
 
     def validate_origin(self, client, existing_config, origin, default_origin_path):
         try:
@@ -1731,11 +1724,7 @@ class CloudFrontValidationManager(object):
 
                     del(origin["s3_origin_access_identity_enabled"])
 
-                    if s3_origin_config:
-                        oai = s3_origin_config
-                    else:
-                        oai = ""
-
+                    oai = s3_origin_config or ""
                     origin["s3_origin_config"] = dict(origin_access_identity=oai)
 
                     if 'custom_origin_config' in origin:
@@ -1777,7 +1766,7 @@ class CloudFrontValidationManager(object):
                                                                     cache_behavior, valid_origins)
                 all_cache_behaviors[cache_behavior['path_pattern']] = valid_cache_behavior
             if purge_cache_behaviors:
-                for target_origin_id in set(all_cache_behaviors.keys()) - set([cb['path_pattern'] for cb in cache_behaviors]):
+                for target_origin_id in set(all_cache_behaviors.keys()) - {cb['path_pattern'] for cb in cache_behaviors}:
                     del(all_cache_behaviors[target_origin_id])
             return ansible_list_to_cloudfront_list(list(all_cache_behaviors.values()))
         except Exception as e:
@@ -1812,9 +1801,14 @@ class CloudFrontValidationManager(object):
                 if is_default_cache:
                     cache_behavior_name = 'Default cache behavior'
                 else:
-                    cache_behavior_name = 'Cache behavior for path %s' % cache_behavior['path_pattern']
-                self.module.fail_json(msg="%s has target_origin_id pointing to an origin that does not exist." %
-                                      cache_behavior_name)
+                    cache_behavior_name = (
+                        f"Cache behavior for path {cache_behavior['path_pattern']}"
+                    )
+
+                self.module.fail_json(
+                    msg=f"{cache_behavior_name} has target_origin_id pointing to an origin that does not exist."
+                )
+
             cache_behavior['target_origin_id'] = target_origin_id
             cache_behavior = self.add_key_else_validate(cache_behavior, 'viewer_protocol_policy', 'cache_behavior.viewer_protocol_policy',
                                                         config.get('viewer_protocol_policy',
@@ -1829,7 +1823,7 @@ class CloudFrontValidationManager(object):
     def validate_forwarded_values(self, config, forwarded_values, cache_behavior):
         try:
             if not forwarded_values:
-                forwarded_values = dict()
+                forwarded_values = {}
             existing_config = config.get('forwarded_values', {})
             headers = forwarded_values.get('headers', existing_config.get('headers', {}).get('items'))
             if headers:
@@ -1840,8 +1834,9 @@ class CloudFrontValidationManager(object):
                 forwarded_values['cookies'] = {'forward': forward}
             else:
                 existing_whitelist = existing_config.get('cookies', {}).get('whitelisted_names', {}).get('items')
-                whitelist = forwarded_values.get('cookies').get('whitelisted_names', existing_whitelist)
-                if whitelist:
+                if whitelist := forwarded_values.get('cookies').get(
+                    'whitelisted_names', existing_whitelist
+                ):
                     self.validate_is_list(whitelist, 'forwarded_values.whitelisted_names')
                     forwarded_values['cookies']['whitelisted_names'] = ansible_list_to_cloudfront_list(whitelist)
                 cookie_forwarding = forwarded_values.get('cookies').get('forward', existing_config.get('cookies', {}).get('forward'))
@@ -1867,11 +1862,10 @@ class CloudFrontValidationManager(object):
                     self.validate_attribute_with_allowed_values(association.get('event_type'), 'cache_behaviors[].lambda_function_associations.event_type',
                                                                 self.__valid_lambda_function_association_event_types)
                 cache_behavior['lambda_function_associations'] = ansible_list_to_cloudfront_list(lambda_function_associations)
+            elif 'lambda_function_associations' in config:
+                cache_behavior['lambda_function_associations'] = config.get('lambda_function_associations')
             else:
-                if 'lambda_function_associations' in config:
-                    cache_behavior['lambda_function_associations'] = config.get('lambda_function_associations')
-                else:
-                    cache_behavior['lambda_function_associations'] = ansible_list_to_cloudfront_list([])
+                cache_behavior['lambda_function_associations'] = ansible_list_to_cloudfront_list([])
             return cache_behavior
         except Exception as e:
             self.module.fail_json_aws(e, msg="Error validating lambda function associations")
@@ -1900,18 +1894,20 @@ class CloudFrontValidationManager(object):
                                                                    self.__valid_methods_cached_methods)
                 # we don't care if the order of how cloudfront stores the methods differs - preserving existing
                 # order reduces likelihood of making unnecessary changes
-                if 'allowed_methods' in config and set(config['allowed_methods']['items']) == set(temp_allowed_items):
-                    cache_behavior['allowed_methods'] = config['allowed_methods']
-                else:
-                    cache_behavior['allowed_methods'] = ansible_list_to_cloudfront_list(temp_allowed_items)
+                cache_behavior['allowed_methods'] = (
+                    config['allowed_methods']
+                    if 'allowed_methods' in config
+                    and set(config['allowed_methods']['items'])
+                    == set(temp_allowed_items)
+                    else ansible_list_to_cloudfront_list(temp_allowed_items)
+                )
 
                 if cached_items and set(cached_items) == set(config.get('allowed_methods', {}).get('cached_methods', {}).get('items', [])):
                     cache_behavior['allowed_methods']['cached_methods'] = config['allowed_methods']['cached_methods']
                 else:
                     cache_behavior['allowed_methods']['cached_methods'] = ansible_list_to_cloudfront_list(cached_items)
-            else:
-                if 'allowed_methods' in config:
-                    cache_behavior['allowed_methods'] = config.get('allowed_methods')
+            elif 'allowed_methods' in config:
+                cache_behavior['allowed_methods'] = config.get('allowed_methods')
             return cache_behavior
         except Exception as e:
             self.module.fail_json_aws(e, msg="Error validating allowed methods")
@@ -1958,8 +1954,12 @@ class CloudFrontValidationManager(object):
             if custom_error_responses is None and not purge_custom_error_responses:
                 return ansible_list_to_cloudfront_list(config)
             self.validate_is_list(custom_error_responses, 'custom_error_responses')
-            result = list()
-            existing_responses = dict((response['error_code'], response) for response in custom_error_responses)
+            result = []
+            existing_responses = {
+                response['error_code']: response
+                for response in custom_error_responses
+            }
+
             for custom_error_response in custom_error_responses:
                 self.validate_required_key('error_code', 'custom_error_responses[].error_code', custom_error_response)
                 custom_error_response = change_dict_key_name(custom_error_response, 'error_caching_min_ttl', 'error_caching_min_t_t_l')
@@ -1978,10 +1978,7 @@ class CloudFrontValidationManager(object):
     def validate_restrictions(self, config, restrictions, purge_restrictions=False):
         try:
             if restrictions is None:
-                if purge_restrictions:
-                    return None
-                else:
-                    return config
+                return None if purge_restrictions else config
             self.validate_required_key('geo_restriction', 'restrictions.geo_restriction', restrictions)
             geo_restriction = restrictions.get('geo_restriction')
             self.validate_required_key('restriction_type', 'restrictions.geo_restriction.restriction_type', geo_restriction)
@@ -2029,7 +2026,11 @@ class CloudFrontValidationManager(object):
             self.module.fail_json_aws(e, msg="Error validating common distribution parameters")
 
     def validate_comment(self, config, comment):
-        config['comment'] = comment or config.get('comment', "Distribution created by Ansible with datetime stamp " + self.__default_datetime_string)
+        config['comment'] = comment or config.get(
+            'comment',
+            f"Distribution created by Ansible with datetime stamp {self.__default_datetime_string}",
+        )
+
         return config
 
     def validate_caller_reference(self, caller_reference):
@@ -2079,18 +2080,16 @@ class CloudFrontValidationManager(object):
         try:
             if caller_reference is not None:
                 return self.validate_distribution_from_caller_reference(caller_reference)
-            else:
-                if aliases and distribution_id is None:
-                    distribution_id = self.validate_distribution_id_from_alias(aliases)
-                if distribution_id:
-                    return self.__cloudfront_facts_mgr.get_distribution(distribution_id)
+            if aliases and distribution_id is None:
+                distribution_id = self.validate_distribution_id_from_alias(aliases)
+            if distribution_id:
+                return self.__cloudfront_facts_mgr.get_distribution(distribution_id)
             return None
         except Exception as e:
             self.module.fail_json_aws(e, msg="Error validating distribution_id from alias, aliases and caller reference")
 
     def validate_distribution_id_from_alias(self, aliases):
-        distributions = self.__cloudfront_facts_mgr.list_distributions(False)
-        if distributions:
+        if distributions := self.__cloudfront_facts_mgr.list_distributions(False):
             for distribution in distributions:
                 distribution_aliases = distribution.get('Aliases', {}).get('Items', [])
                 if set(aliases) & set(distribution_aliases):

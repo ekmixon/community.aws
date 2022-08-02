@@ -160,10 +160,7 @@ class CloudFrontInvalidationServiceManager(object):
         try:
             response = self.client.create_invalidation(DistributionId=distribution_id, InvalidationBatch=invalidation_batch)
             response.pop('ResponseMetadata', None)
-            if current_invalidation_response:
-                return response, False
-            else:
-                return response, True
+            return (response, False) if current_invalidation_response else (response, True)
         except is_boto3_error_message('Your request contains a caller reference that was used for a previous invalidation '
                                       'batch for the same distribution.'):
             self.module.warn("InvalidationBatch target paths are not modifiable. "
@@ -217,10 +214,7 @@ class CloudFrontInvalidationValidationManager(object):
             self.module.fail_json_aws(e, msg="Error validating parameters.")
 
     def create_aws_list(self, invalidation_batch):
-        aws_list = {}
-        aws_list["Quantity"] = len(invalidation_batch)
-        aws_list["Items"] = invalidation_batch
-        return aws_list
+        return {"Quantity": len(invalidation_batch), "Items": invalidation_batch}
 
     def validate_invalidation_batch(self, invalidation_batch, caller_reference):
         try:
@@ -228,22 +222,23 @@ class CloudFrontInvalidationValidationManager(object):
                 valid_caller_reference = caller_reference
             else:
                 valid_caller_reference = datetime.datetime.now().isoformat()
-            valid_invalidation_batch = {
+            return {
                 'paths': self.create_aws_list(invalidation_batch),
-                'caller_reference': valid_caller_reference
+                'caller_reference': valid_caller_reference,
             }
-            return valid_invalidation_batch
+
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error validating invalidation batch.")
 
 
 def main():
     argument_spec = dict(
-        caller_reference=dict(),
-        distribution_id=dict(),
-        alias=dict(),
-        target_paths=dict(required=True, type='list', elements='str')
+        caller_reference={},
+        distribution_id={},
+        alias={},
+        target_paths=dict(required=True, type='list', elements='str'),
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec, supports_check_mode=False, mutually_exclusive=[['distribution_id', 'alias']])
 

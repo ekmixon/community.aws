@@ -704,13 +704,13 @@ def describe_launch_templates(connection, launch_template):
             lt = connection.describe_launch_templates(LaunchTemplateIds=[launch_template['launch_template_id']])
             return lt
         except is_boto3_error_code('InvalidLaunchTemplateName.NotFoundException'):
-            module.fail_json(msg="No launch template found matching: %s" % launch_template)
+            module.fail_json(msg=f"No launch template found matching: {launch_template}")
     else:
         try:
             lt = connection.describe_launch_templates(LaunchTemplateNames=[launch_template['launch_template_name']])
             return lt
         except is_boto3_error_code('InvalidLaunchTemplateName.NotFoundException'):
-            module.fail_json(msg="No launch template found matching: %s" % launch_template)
+            module.fail_json(msg=f"No launch template found matching: {launch_template}")
 
 
 @AWSRetry.jittered_backoff(**backoff_params)
@@ -781,14 +781,14 @@ def enforce_required_arguments_for_create():
     ''' As many arguments are not required for autoscale group deletion
         they cannot be mandatory arguments for the module, so we enforce
         them here '''
-    missing_args = []
     if module.params.get('launch_config_name') is None and module.params.get('launch_template') is None:
         module.fail_json(msg="Missing either launch_config_name or launch_template for autoscaling group create")
-    for arg in ('min_size', 'max_size'):
-        if module.params[arg] is None:
-            missing_args.append(arg)
-    if missing_args:
-        module.fail_json(msg="Missing required arguments for autoscaling group create: %s" % ",".join(missing_args))
+    if missing_args := [
+        arg for arg in ('min_size', 'max_size') if module.params[arg] is None
+    ]:
+        module.fail_json(
+            msg=f'Missing required arguments for autoscaling group create: {",".join(missing_args)}'
+        )
 
 
 def get_properties(autoscaling_group):
@@ -800,10 +800,8 @@ def get_properties(autoscaling_group):
         viable_instances=0,
         terminating_instances=0
     )
-    instance_facts = dict()
-    autoscaling_group_instances = autoscaling_group.get('Instances')
-
-    if autoscaling_group_instances:
+    instance_facts = {}
+    if autoscaling_group_instances := autoscaling_group.get('Instances'):
         properties['instances'] = [i['InstanceId'] for i in autoscaling_group_instances]
         for i in autoscaling_group_instances:
             instance_facts[i['InstanceId']] = {
@@ -854,8 +852,9 @@ def get_properties(autoscaling_group):
     properties['termination_policies'] = autoscaling_group.get('TerminationPolicies')
     properties['target_group_arns'] = autoscaling_group.get('TargetGroupARNs')
     properties['vpc_zone_identifier'] = autoscaling_group.get('VPCZoneIdentifier')
-    raw_mixed_instance_object = autoscaling_group.get('MixedInstancesPolicy')
-    if raw_mixed_instance_object:
+    if raw_mixed_instance_object := autoscaling_group.get(
+        'MixedInstancesPolicy'
+    ):
         properties['mixed_instances_policy_full'] = camel_dict_to_snake_dict(raw_mixed_instance_object)
         properties['mixed_instances_policy'] = [x['InstanceType'] for x in raw_mixed_instance_object.get('LaunchTemplate').get('Overrides')]
 
@@ -883,7 +882,7 @@ def get_properties(autoscaling_group):
 
 
 def get_launch_object(connection, ec2_connection):
-    launch_object = dict()
+    launch_object = {}
     launch_config_name = module.params.get('launch_config_name')
     launch_template = module.params.get('launch_template')
     mixed_instances_policy = module.params.get('mixed_instances_policy')
@@ -895,7 +894,7 @@ def get_launch_object(connection, ec2_connection):
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg="Failed to describe launch configurations")
         if len(launch_configs['LaunchConfigurations']) == 0:
-            module.fail_json(msg="No launch config found with name %s" % launch_config_name)
+            module.fail_json(msg=f"No launch config found with name {launch_config_name}")
         launch_object = {"LaunchConfigurationName": launch_configs['LaunchConfigurations'][0]['LaunchConfigurationName']}
         return launch_object
     elif launch_template:
@@ -936,7 +935,7 @@ def elb_dreg(asg_connection, group_name, instance_id):
 
     for lb in as_group['LoadBalancerNames']:
         deregister_lb_instances(elb_connection, lb, instance_id)
-        module.debug("De-registering %s from ELB %s" % (instance_id, lb))
+        module.debug(f"De-registering {instance_id} from ELB {lb}")
 
     wait_timeout = time.time() + wait_timeout
     while wait_timeout > time.time() and count > 0:
@@ -946,7 +945,7 @@ def elb_dreg(asg_connection, group_name, instance_id):
             for i in lb_instances['InstanceStates']:
                 if i['InstanceId'] == instance_id and i['State'] == "InService":
                     count += 1
-                    module.debug("%s: %s, %s" % (i['InstanceId'], i['State'], i['Description']))
+                    module.debug(f"{i['InstanceId']}: {i['State']}, {i['Description']}")
         time.sleep(10)
 
     if wait_timeout <= time.time():
@@ -959,13 +958,19 @@ def elb_healthy(asg_connection, elb_connection, group_name):
     as_group = describe_autoscaling_groups(asg_connection, group_name)[0]
     props = get_properties(as_group)
     # get healthy, inservice instances from ASG
-    instances = []
-    for instance, settings in props['instance_facts'].items():
-        if settings['lifecycle_state'] == 'InService' and settings['health_status'] == 'Healthy':
-            instances.append(dict(InstanceId=instance))
-    module.debug("ASG considers the following instances InService and Healthy: %s" % instances)
+    instances = [
+        dict(InstanceId=instance)
+        for instance, settings in props['instance_facts'].items()
+        if settings['lifecycle_state'] == 'InService'
+        and settings['health_status'] == 'Healthy'
+    ]
+
+    module.debug(
+        f"ASG considers the following instances InService and Healthy: {instances}"
+    )
+
     module.debug("ELB instance status:")
-    lb_instances = list()
+    lb_instances = []
     for lb in as_group.get('LoadBalancerNames'):
         # we catch a race condition that sometimes happens if the instance exists in the ASG
         # but has not yet show up in the ELB
@@ -979,7 +984,7 @@ def elb_healthy(asg_connection, elb_connection, group_name):
         for i in lb_instances.get('InstanceStates'):
             if i['State'] == "InService":
                 healthy_instances.add(i['InstanceId'])
-            module.debug("ELB Health State %s: %s" % (i['InstanceId'], i['State']))
+            module.debug(f"ELB Health State {i['InstanceId']}: {i['State']}")
     return len(healthy_instances)
 
 
@@ -988,13 +993,19 @@ def tg_healthy(asg_connection, elbv2_connection, group_name):
     as_group = describe_autoscaling_groups(asg_connection, group_name)[0]
     props = get_properties(as_group)
     # get healthy, inservice instances from ASG
-    instances = []
-    for instance, settings in props['instance_facts'].items():
-        if settings['lifecycle_state'] == 'InService' and settings['health_status'] == 'Healthy':
-            instances.append(dict(Id=instance))
-    module.debug("ASG considers the following instances InService and Healthy: %s" % instances)
+    instances = [
+        dict(Id=instance)
+        for instance, settings in props['instance_facts'].items()
+        if settings['lifecycle_state'] == 'InService'
+        and settings['health_status'] == 'Healthy'
+    ]
+
+    module.debug(
+        f"ASG considers the following instances InService and Healthy: {instances}"
+    )
+
     module.debug("Target Group instance status:")
-    tg_instances = list()
+    tg_instances = []
     for tg in as_group.get('TargetGroupARNs'):
         # we catch a race condition that sometimes happens if the instance exists in the ASG
         # but has not yet show up in the ELB
@@ -1008,7 +1019,10 @@ def tg_healthy(asg_connection, elbv2_connection, group_name):
         for i in tg_instances.get('TargetHealthDescriptions'):
             if i['TargetHealth']['State'] == "healthy":
                 healthy_instances.add(i['Target']['Id'])
-            module.debug("Target Group Health State %s: %s" % (i['Target']['Id'], i['TargetHealth']['State']))
+            module.debug(
+                f"Target Group Health State {i['Target']['Id']}: {i['TargetHealth']['State']}"
+            )
+
     return len(healthy_instances)
 
 
@@ -1028,12 +1042,17 @@ def wait_for_elb(asg_connection, group_name):
 
         while healthy_instances < as_group.get('MinSize') and wait_timeout > time.time():
             healthy_instances = elb_healthy(asg_connection, elb_connection, group_name)
-            module.debug("ELB thinks %s instances are healthy." % healthy_instances)
+            module.debug(f"ELB thinks {healthy_instances} instances are healthy.")
             time.sleep(10)
         if wait_timeout <= time.time():
             # waiting took too long
-            module.fail_json(msg="Waited too long for ELB instances to be healthy. %s" % time.asctime())
-        module.debug("Waiting complete. ELB thinks %s instances are healthy." % healthy_instances)
+            module.fail_json(
+                msg=f"Waited too long for ELB instances to be healthy. {time.asctime()}"
+            )
+
+        module.debug(
+            f"Waiting complete. ELB thinks {healthy_instances} instances are healthy."
+        )
 
 
 def wait_for_target_group(asg_connection, group_name):
@@ -1052,19 +1071,27 @@ def wait_for_target_group(asg_connection, group_name):
 
         while healthy_instances < as_group.get('MinSize') and wait_timeout > time.time():
             healthy_instances = tg_healthy(asg_connection, elbv2_connection, group_name)
-            module.debug("Target Group thinks %s instances are healthy." % healthy_instances)
+            module.debug(f"Target Group thinks {healthy_instances} instances are healthy.")
             time.sleep(10)
         if wait_timeout <= time.time():
             # waiting took too long
-            module.fail_json(msg="Waited too long for ELB instances to be healthy. %s" % time.asctime())
-        module.debug("Waiting complete. Target Group thinks %s instances are healthy." % healthy_instances)
+            module.fail_json(
+                msg=f"Waited too long for ELB instances to be healthy. {time.asctime()}"
+            )
+
+        module.debug(
+            f"Waiting complete. Target Group thinks {healthy_instances} instances are healthy."
+        )
 
 
 def suspend_processes(ec2_connection, as_group):
     suspend_processes = set(module.params.get('suspend_processes'))
 
     try:
-        suspended_processes = set([p['ProcessName'] for p in as_group['SuspendedProcesses']])
+        suspended_processes = {
+            p['ProcessName'] for p in as_group['SuspendedProcesses']
+        }
+
     except AttributeError:
         # New ASG being created, no suspended_processes defined yet
         suspended_processes = set()
@@ -1072,8 +1099,7 @@ def suspend_processes(ec2_connection, as_group):
     if suspend_processes == suspended_processes:
         return False
 
-    resume_processes = list(suspended_processes - suspend_processes)
-    if resume_processes:
+    if resume_processes := list(suspended_processes - suspend_processes):
         resume_asg_processes(ec2_connection, module.params.get('name'), resume_processes)
 
     if suspend_processes:

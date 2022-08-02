@@ -150,11 +150,7 @@ class CodeCommit(object):
         result = dict(changed=False)
 
         if self._module.params['state'] == 'present':
-            if not self._repository_exists():
-                if not self._check_mode:
-                    result = self._create_repository()
-                result['changed'] = True
-            else:
+            if self._repository_exists():
                 metadata = self._get_repository()['repositoryMetadata']
                 if not metadata.get('repositoryDescription'):
                     metadata['repositoryDescription'] = ''
@@ -162,7 +158,11 @@ class CodeCommit(object):
                     if not self._check_mode:
                         self._update_repository()
                     result['changed'] = True
-                result.update(self._get_repository())
+                result |= self._get_repository()
+            else:
+                if not self._check_mode:
+                    result = self._create_repository()
+                result['changed'] = True
         if self._module.params['state'] == 'absent' and self._repository_exists():
             if not self._check_mode:
                 result = self._delete_repository()

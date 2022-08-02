@@ -216,9 +216,8 @@ def main():
         else:
             update_resource(client, module, params, result)
 
-    if state == 'absent':
-        if resource_status:
-            delete_resource(client, module, params, result)
+    if state == 'absent' and resource_status:
+        delete_resource(client, module, params, result)
 
     module.exit_json(changed=result['changed'])
 

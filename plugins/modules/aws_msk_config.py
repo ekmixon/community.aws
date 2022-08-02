@@ -141,13 +141,11 @@ def find_active_config(client, module):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="failed to obtain kafka configurations")
 
-    active_configs = list(
+    if active_configs := [
         item
         for item in all_configs
         if item["Name"] == name and item["State"] == "ACTIVE"
-    )
-
-    if active_configs:
+    ]:
         if len(active_configs) == 1:
             return active_configs[0]
         else:
@@ -174,42 +172,18 @@ def is_configuration_changed(module, current):
     python 2.7+ version:
     prop_module = {str(k): str(v) for k, v in module.params.get("config").items()}
     """
-    prop_module = {}
-    for k, v in module.params.get("config").items():
-        prop_module[str(k)] = str(v)
-    if prop_to_dict(current.get("ServerProperties", "")) == prop_module:
-        if current.get("Description", "") == module.params.get("description"):
-            return False
-    return True
+    prop_module = {str(k): str(v) for k, v in module.params.get("config").items()}
+    return prop_to_dict(
+        current.get("ServerProperties", "")
+    ) != prop_module or current.get("Description", "") != module.params.get(
+        "description"
+    )
 
 
 def create_config(client, module):
     """create new or update existing configuration"""
 
-    config = find_active_config(client, module)
-
-    # create new configuration
-    if not config:
-
-        if module.check_mode:
-            return True, {}
-
-        try:
-            response = client.create_configuration(
-                Name=module.params.get("name"),
-                Description=module.params.get("description"),
-                KafkaVersions=module.params.get("kafka_versions"),
-                ServerProperties=dict_to_prop(module.params.get("config")).encode(),
-                aws_retry=True
-            )
-        except (
-            botocore.exceptions.BotoCoreError,
-            botocore.exceptions.ClientError,
-        ) as e:
-            module.fail_json_aws(e, "failed to create kafka configuration")
-
-    # update existing configuration (creates new revision)
-    else:
+    if config := find_active_config(client, module):
         # it's required because 'config' doesn't contain 'ServerProperties'
         response = get_configuration_revision(client, module, arn=config["Arn"], revision=config["LatestRevision"]["Revision"])
 
@@ -232,6 +206,24 @@ def create_config(client, module):
         ) as e:
             module.fail_json_aws(e, "failed to update kafka configuration")
 
+    else:
+        if module.check_mode:
+            return True, {}
+
+        try:
+            response = client.create_configuration(
+                Name=module.params.get("name"),
+                Description=module.params.get("description"),
+                KafkaVersions=module.params.get("kafka_versions"),
+                ServerProperties=dict_to_prop(module.params.get("config")).encode(),
+                aws_retry=True
+            )
+        except (
+            botocore.exceptions.BotoCoreError,
+            botocore.exceptions.ClientError,
+        ) as e:
+            module.fail_json_aws(e, "failed to create kafka configuration")
+
     arn = response["Arn"]
     revision = response["LatestRevision"]["Revision"]
 
@@ -246,11 +238,7 @@ def delete_config(client, module):
     config = find_active_config(client, module)
 
     if module.check_mode:
-        if config:
-            return True, config
-        else:
-            return False, {}
-
+        return (True, config) if config else (False, {})
     if config:
         try:
             response = client.delete_configuration(Arn=config["Arn"], aws_retry=True)

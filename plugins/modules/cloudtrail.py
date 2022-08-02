@@ -317,10 +317,11 @@ def tag_trail(module, client, tags, trail_arn, curr_tags=None, dry_run=False):
         new_keys = set(tags.keys())
         add_keys = new_keys - curr_keys
         remove_keys = curr_keys - new_keys
-        update_keys = dict()
-        for k in curr_keys.intersection(new_keys):
-            if curr_tags[k] != tags[k]:
-                update_keys.update({k: tags[k]})
+        update_keys = {
+            k: tags[k]
+            for k in curr_keys.intersection(new_keys)
+            if curr_tags[k] != tags[k]
+        }
 
         adds = get_tag_list(add_keys, tags)
         removes = get_tag_list(remove_keys, curr_tags)
@@ -351,11 +352,7 @@ def get_tag_list(keys, tags):
     keys : set of keys to get the values for
     tags : the dict of tags to turn into a list
     """
-    tag_list = []
-    for k in keys:
-        tag_list.append({'Key': k, 'Value': tags[k]})
-
-    return tag_list
+    return [{'Key': k, 'Value': tags[k]} for k in keys]
 
 
 def set_logging(module, client, name, action):
@@ -409,7 +406,15 @@ def get_trail_facts(module, client, name):
         trail['IsLogging'] = status_resp['IsLogging']
         trail['tags'] = boto3_tag_list_to_ansible_dict(tags_list['ResourceTagList'][0]['TagsList'])
         # Check for non-existent values and populate with None
-        optional_vals = set(['S3KeyPrefix', 'SnsTopicName', 'SnsTopicARN', 'CloudWatchLogsLogGroupArn', 'CloudWatchLogsRoleArn', 'KmsKeyId'])
+        optional_vals = {
+            'S3KeyPrefix',
+            'SnsTopicName',
+            'SnsTopicARN',
+            'CloudWatchLogsLogGroupArn',
+            'CloudWatchLogsRoleArn',
+            'KmsKeyId',
+        }
+
         for v in optional_vals - set(trail.keys()):
             trail[v] = None
         return trail

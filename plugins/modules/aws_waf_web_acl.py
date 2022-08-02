@@ -177,8 +177,11 @@ from ansible_collections.amazon.aws.plugins.module_utils.waf import (
 
 
 def get_web_acl_by_name(client, module, name):
-    acls = [d['WebACLId'] for d in list_web_acls(client, module) if d['Name'] == name]
-    if acls:
+    if acls := [
+        d['WebACLId']
+        for d in list_web_acls(client, module)
+        if d['Name'] == name
+    ]:
         return acls[0]
     else:
         return acls
@@ -188,13 +191,13 @@ def create_rule_lookup(client, module):
     if client.__class__.__name__ == 'WAF':
         try:
             rules = list_rules_with_backoff(client)
-            return dict((rule['Name'], rule) for rule in rules)
+            return {rule['Name']: rule for rule in rules}
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg='Could not list rules')
     elif client.__class__.__name__ == 'WAFRegional':
         try:
             rules = list_regional_rules_with_backoff(client)
-            return dict((rule['Name'], rule) for rule in rules)
+            return {rule['Name']: rule for rule in rules}
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg='Could not list regional rules')
 
@@ -203,7 +206,7 @@ def get_web_acl(client, module, web_acl_id):
     try:
         return client.get_web_acl(WebACLId=web_acl_id)['WebACL']
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-        module.fail_json_aws(e, msg='Could not get Web ACL with id %s' % web_acl_id)
+        module.fail_json_aws(e, msg=f'Could not get Web ACL with id {web_acl_id}')
 
 
 def list_web_acls(client, module,):
@@ -302,8 +305,7 @@ def ensure_web_acl_present(client, module):
     changed = False
     result = None
     name = module.params['name']
-    web_acl_id = get_web_acl_by_name(client, module, name)
-    if web_acl_id:
+    if web_acl_id := get_web_acl_by_name(client, module, name):
         (changed, result) = find_and_update_web_acl(client, module, web_acl_id)
     else:
         metric_name = module.params['metric_name']
@@ -320,8 +322,9 @@ def ensure_web_acl_present(client, module):
 
 
 def ensure_web_acl_absent(client, module):
-    web_acl_id = get_web_acl_by_name(client, module, module.params['name'])
-    if web_acl_id:
+    if web_acl_id := get_web_acl_by_name(
+        client, module, module.params['name']
+    ):
         web_acl = get_web_acl(client, module, web_acl_id)
         if web_acl['Rules']:
             remove_rules_from_web_acl(client, module, web_acl_id)
@@ -337,17 +340,18 @@ def main():
     argument_spec = dict(
         name=dict(required=True),
         default_action=dict(choices=['block', 'allow', 'count']),
-        metric_name=dict(),
+        metric_name={},
         state=dict(default='present', choices=['present', 'absent']),
         rules=dict(type='list', elements='dict'),
         purge_rules=dict(type='bool', default=False),
-        waf_regional=dict(type='bool', default=False)
+        waf_regional=dict(type='bool', default=False),
     )
+
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               required_if=[['state', 'present', ['default_action', 'rules']]])
     state = module.params.get('state')
 
-    resource = 'waf' if not module.params['waf_regional'] else 'waf-regional'
+    resource = 'waf-regional' if module.params['waf_regional'] else 'waf'
     client = module.client(resource)
     if state == 'present':
         (changed, results) = ensure_web_acl_present(client, module)

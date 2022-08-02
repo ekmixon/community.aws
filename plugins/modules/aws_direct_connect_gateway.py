@@ -121,7 +121,7 @@ def wait_for_status(client, module, gateway_id, virtual_gateway_id, status):
     max_retries = 3
     status_achieved = False
 
-    for x in range(0, max_retries):
+    for _ in range(max_retries):
         try:
             response = check_dxgw_association(
                 client,
@@ -145,8 +145,7 @@ def wait_for_status(client, module, gateway_id, virtual_gateway_id, status):
 
 
 def associate_direct_connect_gateway(client, module, gateway_id):
-    params = dict()
-    params['virtual_gateway_id'] = module.params.get('virtual_gateway_id')
+    params = {'virtual_gateway_id': module.params.get('virtual_gateway_id')}
     try:
         response = client.create_direct_connect_gateway_association(
             directConnectGatewayId=gateway_id,
@@ -158,8 +157,7 @@ def associate_direct_connect_gateway(client, module, gateway_id):
     if not status_achieved:
         module.fail_json(msg='Error waiting for dxgw to attach to vpg - please check the AWS console')
 
-    result = response
-    return result
+    return response
 
 
 def delete_association(client, module, gateway_id, virtual_gateway_id):
@@ -174,13 +172,11 @@ def delete_association(client, module, gateway_id, virtual_gateway_id):
     if not status_achieved:
         module.fail_json(msg='Error waiting for  dxgw to detach from vpg - please check the AWS console')
 
-    result = response
-    return result
+    return response
 
 
 def create_dx_gateway(client, module):
-    params = dict()
-    params['name'] = module.params.get('name')
+    params = {'name': module.params.get('name')}
     params['amazon_asn'] = module.params.get('amazon_asn')
     try:
         response = client.create_direct_connect_gateway(
@@ -189,13 +185,12 @@ def create_dx_gateway(client, module):
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Failed to create direct connect gateway.")
 
-    result = response
-    return result
+    return response
 
 
 def find_dx_gateway(client, module, gateway_id=None):
-    params = dict()
-    gateways = list()
+    params = {}
+    gateways = []
     if gateway_id is not None:
         params['directConnectGatewayId'] = gateway_id
     while True:
@@ -238,9 +233,8 @@ def ensure_present(client, module):
     # then a match is considered to have been found and we will not create another dxgw.
 
     changed = False
-    params = dict()
-    result = dict()
-    params['name'] = module.params.get('name')
+    result = {}
+    params = {'name': module.params.get('name')}
     params['amazon_asn'] = module.params.get('amazon_asn')
     params['virtual_gateway_id'] = module.params.get('virtual_gateway_id')
 
@@ -294,11 +288,7 @@ def ensure_present(client, module):
 
 
 def ensure_absent(client, module):
-    # If an existing direct connect gateway matches our args
-    # then a match is considered to have been found and we will not create another dxgw.
-
-    changed = False
-    result = dict()
+    result = {}
     dx_gateway_id = module.params.get('direct_connect_gateway_id')
     existing_dxgw = find_dx_gateway(client, module, dx_gateway_id)
     if existing_dxgw is not None:
@@ -328,18 +318,19 @@ def ensure_absent(client, module):
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Failed to delete gateway")
         result = resp['directConnectGateway']
-    return changed
+    return False
 
 
 def main():
     argument_spec = dict(
         state=dict(default='present', choices=['present', 'absent']),
-        name=dict(),
-        amazon_asn=dict(),
-        virtual_gateway_id=dict(),
-        direct_connect_gateway_id=dict(),
+        name={},
+        amazon_asn={},
+        virtual_gateway_id={},
+        direct_connect_gateway_id={},
         wait_timeout=dict(type='int', default=320),
     )
+
     required_if = [('state', 'present', ['name', 'amazon_asn']),
                    ('state', 'absent', ['direct_connect_gateway_id'])]
     module = AnsibleAWSModule(argument_spec=argument_spec,

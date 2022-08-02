@@ -419,8 +419,7 @@ def is_pending(peering_conn):
 
 def create_peer_connection(client, module):
     changed = False
-    params = dict()
-    params['VpcId'] = module.params.get('vpc_id')
+    params = {'VpcId': module.params.get('vpc_id')}
     params['PeerVpcId'] = module.params.get('peer_vpc_id')
     if module.params.get('peer_region'):
         params['PeerRegion'] = module.params.get('peer_region')
@@ -460,7 +459,7 @@ def remove_peer_connection(client, module):
     if pcx_id:
         peering_conn = get_peering_connection_by_id(pcx_id, client, module)
     else:
-        params = dict()
+        params = {}
         params['VpcId'] = module.params.get('vpc_id')
         params['PeerVpcId'] = module.params.get('peer_vpc_id')
         params['PeerRegion'] = module.params.get('peer_region')
@@ -483,7 +482,7 @@ def remove_peer_connection(client, module):
         )
 
     try:
-        params = dict()
+        params = {}
         params['VpcPeeringConnectionId'] = pcx_id
         client.delete_vpc_peering_connection(aws_retry=True, **params)
         if module.params.get('wait'):
@@ -494,8 +493,7 @@ def remove_peer_connection(client, module):
 
 
 def get_peering_connection_by_id(peering_id, client, module):
-    params = dict()
-    params['VpcPeeringConnectionIds'] = [peering_id]
+    params = {'VpcPeeringConnectionIds': [peering_id]}
     try:
         vpc_peering_connection = client.describe_vpc_peering_connections(aws_retry=True, **params)
         return vpc_peering_connection['VpcPeeringConnections'][0]
@@ -507,7 +505,7 @@ def get_peering_connection_by_id(peering_id, client, module):
 
 def accept_reject(state, client, module):
     changed = False
-    params = dict()
+    params = {}
     peering_id = module.params.get('peering_id')
     params['VpcPeeringConnectionId'] = peering_id
     vpc_peering_connection = get_peering_connection_by_id(peering_id, client, module)
@@ -542,16 +540,20 @@ def accept_reject(state, client, module):
 
 def main():
     argument_spec = dict(
-        vpc_id=dict(),
-        peer_vpc_id=dict(),
-        peer_region=dict(),
-        peering_id=dict(),
-        peer_owner_id=dict(),
+        vpc_id={},
+        peer_vpc_id={},
+        peer_region={},
+        peering_id={},
+        peer_owner_id={},
         tags=dict(required=False, type='dict'),
         purge_tags=dict(default=True, type='bool'),
-        state=dict(default='present', choices=['present', 'absent', 'accept', 'reject']),
+        state=dict(
+            default='present',
+            choices=['present', 'absent', 'accept', 'reject'],
+        ),
         wait=dict(default=False, type='bool'),
     )
+
     required_if = [
         ('state', 'present', ['vpc_id', 'peer_vpc_id']),
         ('state', 'accept', ['peering_id']),

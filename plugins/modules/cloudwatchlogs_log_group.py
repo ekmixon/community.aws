@@ -203,8 +203,7 @@ def delete_log_group(client, log_group_name, module):
 
 def describe_log_group(client, log_group_name, module):
     try:
-        desc_log_group = client.describe_log_groups(logGroupNamePrefix=log_group_name)
-        return desc_log_group
+        return client.describe_log_groups(logGroupNamePrefix=log_group_name)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable to describe log group {0}".format(log_group_name))
 
@@ -234,11 +233,14 @@ def main():
 
     # Determine if the log group exists
     desc_log_group = describe_log_group(client=logs, log_group_name=module.params['log_group_name'], module=module)
-    found_log_group = {}
-    for i in desc_log_group.get('logGroups', []):
-        if module.params['log_group_name'] == i['logGroupName']:
-            found_log_group = i
-            break
+    found_log_group = next(
+        (
+            i
+            for i in desc_log_group.get('logGroups', [])
+            if module.params['log_group_name'] == i['logGroupName']
+        ),
+        {},
+    )
 
     if state == 'present':
         if found_log_group:
@@ -266,7 +268,7 @@ def main():
                                            module=module)
                     found_log_group['retentionInDays'] = module.params['retention']
 
-        elif not found_log_group:
+        else:
             changed = True
             found_log_group = create_log_group(client=logs,
                                                log_group_name=module.params['log_group_name'],

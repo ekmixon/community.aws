@@ -85,16 +85,13 @@ def describe_log_group(client, log_group_name, module):
         params['logGroupNamePrefix'] = log_group_name
     try:
         paginator = client.get_paginator('describe_log_groups')
-        desc_log_group = paginator.paginate(**params).build_full_result()
-        return desc_log_group
+        return paginator.paginate(**params).build_full_result()
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable to describe log group {0}".format(log_group_name))
 
 
 def main():
-    argument_spec = dict(
-        log_group_name=dict(),
-    )
+    argument_spec = dict(log_group_name={})
 
     module = AnsibleAWSModule(argument_spec=argument_spec, supports_check_mode=True)
 
@@ -106,10 +103,11 @@ def main():
     desc_log_group = describe_log_group(client=logs,
                                         log_group_name=module.params['log_group_name'],
                                         module=module)
-    final_log_group_snake = []
+    final_log_group_snake = [
+        camel_dict_to_snake_dict(log_group)
+        for log_group in desc_log_group['logGroups']
+    ]
 
-    for log_group in desc_log_group['logGroups']:
-        final_log_group_snake.append(camel_dict_to_snake_dict(log_group))
 
     desc_log_group_result = dict(changed=False, log_groups=final_log_group_snake)
     module.exit_json(**desc_log_group_result)

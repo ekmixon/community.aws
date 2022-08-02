@@ -116,7 +116,7 @@ def metricTransformationHandler(metricTransformations, originMetricTransformatio
         change = True
 
     defaultValue = metricTransformations.get("default_value")
-    if isinstance(defaultValue, int) or isinstance(defaultValue, float):
+    if isinstance(defaultValue, (int, float)):
         retval = [
             {
                 'metricName': metricTransformations.get("metric_name"),
@@ -198,14 +198,13 @@ def main():
 
         change = change or filter_pattern != originFilterPattern
 
-        if change:
-            if not module.check_mode:
-                response = cwl.put_metric_filter(
-                    logGroupName=log_group_name,
-                    filterName=filter_name,
-                    filterPattern=filter_pattern,
-                    metricTransformations=metricTransformation
-                )
+        if change and not module.check_mode:
+            response = cwl.put_metric_filter(
+                logGroupName=log_group_name,
+                filterName=filter_name,
+                filterPattern=filter_pattern,
+                metricTransformations=metricTransformation
+            )
 
         metricTransformation = [camel_dict_to_snake_dict(item) for item in metricTransformation]
 

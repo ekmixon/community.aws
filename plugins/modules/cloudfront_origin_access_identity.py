@@ -155,7 +155,6 @@ class CloudFrontOriginAccessIdentityServiceManager(object):
             self.module.fail_json_aws(e, msg="Error updating Origin Access Identity.")
 
     def update_origin_access_identity(self, caller_reference, comment, origin_access_identity_id, e_tag):
-        changed = False
         new_config = {
             'CallerReference': caller_reference,
             'Comment': comment
@@ -167,9 +166,7 @@ class CloudFrontOriginAccessIdentityServiceManager(object):
         except (ClientError, BotoCoreError) as e:
             self.module.fail_json_aws(e, msg="Error getting Origin Access Identity config.")
 
-        if new_config != current_config:
-            changed = True
-
+        changed = new_config != current_config
         try:
             # If the CallerReference is a value already sent in a previous identity request
             # the returned value is that of the original request
@@ -225,10 +222,11 @@ class CloudFrontOriginAccessIdentityValidationManager(object):
 def main():
     argument_spec = dict(
         state=dict(choices=['present', 'absent'], default='present'),
-        origin_access_identity_id=dict(),
-        caller_reference=dict(),
-        comment=dict(),
+        origin_access_identity_id={},
+        caller_reference={},
+        comment={},
     )
+
 
     result = {}
     e_tag = None

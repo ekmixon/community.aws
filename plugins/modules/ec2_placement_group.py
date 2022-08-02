@@ -127,13 +127,12 @@ def get_placement_group_details(connection, module):
 
     if len(response['PlacementGroups']) != 1:
         return None
-    else:
-        placement_group = response['PlacementGroups'][0]
-        return {
-            "name": placement_group['GroupName'],
-            "state": placement_group['State'],
-            "strategy": placement_group['Strategy'],
-        }
+    placement_group = response['PlacementGroups'][0]
+    return {
+        "name": placement_group['GroupName'],
+        "state": placement_group['State'],
+        "strategy": placement_group['Strategy'],
+    }
 
 
 @AWSRetry.exponential_backoff()

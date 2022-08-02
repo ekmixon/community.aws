@@ -98,9 +98,7 @@ def get_identity_policy(connection, module, identity, policy_name):
     except (BotoCoreError, ClientError) as e:
         module.fail_json_aws(e, msg='Failed to retrieve identity policy {policy}'.format(policy=policy_name))
     policies = response['Policies']
-    if policy_name in policies:
-        return policies[policy_name]
-    return None
+    return policies[policy_name] if policy_name in policies else None
 
 
 def create_or_update_identity_policy(connection, module):

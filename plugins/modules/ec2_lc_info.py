@@ -174,9 +174,10 @@ def list_launch_configs(connection, module):
     except ClientError as e:
         module.fail_json_aws(e, msg="Failed to list launch configs")
 
-    snaked_launch_configs = []
-    for launch_config in launch_configs['LaunchConfigurations']:
-        snaked_launch_configs.append(camel_dict_to_snake_dict(launch_config))
+    snaked_launch_configs = [
+        camel_dict_to_snake_dict(launch_config)
+        for launch_config in launch_configs['LaunchConfigurations']
+    ]
 
     for launch_config in snaked_launch_configs:
         if 'CreatedTime' in launch_config:
@@ -185,12 +186,12 @@ def list_launch_configs(connection, module):
     if sort:
         snaked_launch_configs.sort(key=lambda e: e[sort], reverse=(sort_order == 'descending'))
 
-    if sort and sort_start and sort_end:
-        snaked_launch_configs = snaked_launch_configs[sort_start:sort_end]
-    elif sort and sort_start:
-        snaked_launch_configs = snaked_launch_configs[sort_start:]
-    elif sort and sort_end:
-        snaked_launch_configs = snaked_launch_configs[:sort_end]
+        if sort_start and sort_end:
+            snaked_launch_configs = snaked_launch_configs[sort_start:sort_end]
+        elif sort_start:
+            snaked_launch_configs = snaked_launch_configs[sort_start:]
+        elif sort_end:
+            snaked_launch_configs = snaked_launch_configs[:sort_end]
 
     module.exit_json(launch_configurations=snaked_launch_configs)
 

@@ -273,7 +273,11 @@ class SecretsManagerInterface(object):
         try:
             json.loads(secret.secret_resource_policy_args.get("ResourcePolicy"))
         except (TypeError, ValueError) as e:
-            self.module.fail_json(msg="Failed to parse resource policy as JSON: %s" % (str(e)), exception=format_exc())
+            self.module.fail_json(
+                msg=f"Failed to parse resource policy as JSON: {str(e)}",
+                exception=format_exc(),
+            )
+
 
         try:
             response = self.client.put_resource_policy(**secret.secret_resource_policy_args)
@@ -357,9 +361,7 @@ class SecretsManagerInterface(object):
             desired_value = to_bytes(desired_secret.secret)
         else:
             desired_value = desired_secret.secret
-        if desired_value != current_secret_value.get(desired_secret.secret_type):
-            return False
-        return True
+        return desired_value == current_secret_value.get(desired_secret.secret_type)
 
 
 def rotation_match(desired_secret, current_secret):
@@ -387,17 +389,20 @@ def main():
             'name': dict(required=True),
             'state': dict(choices=['present', 'absent'], default='present'),
             'description': dict(default=""),
-            'kms_key_id': dict(),
-            'secret_type': dict(choices=['binary', 'string'], default="string"),
+            'kms_key_id': {},
+            'secret_type': dict(
+                choices=['binary', 'string'], default="string"
+            ),
             'secret': dict(default="", no_log=True),
             'resource_policy': dict(type='json', default=None),
             'tags': dict(type='dict', default={}),
-            'rotation_lambda': dict(),
+            'rotation_lambda': {},
             'rotation_interval': dict(type='int', default=30),
             'recovery_window': dict(type='int', default=30),
         },
         supports_check_mode=True,
     )
+
 
     changed = False
     state = module.params.get('state')

@@ -231,24 +231,22 @@ def delete_dms_endpoint(connection):
         delete_arn = dict(
             EndpointArn=endpoint_arn
         )
-        if module.params.get('wait'):
-
-            delete_output = connection.delete_endpoint(**delete_arn)
-            delete_waiter = get_endpoint_deleted_waiter(connection)
-            delete_waiter.wait(
-                Filters=[{
-                    'Name': 'endpoint-arn',
-                    'Values': [endpoint_arn]
-
-                }],
-                WaiterConfig={
-                    'Delay': module.params.get('timeout'),
-                    'MaxAttempts': module.params.get('retries')
-                }
-            )
-            return delete_output
-        else:
+        if not module.params.get('wait'):
             return connection.delete_endpoint(**delete_arn)
+        delete_output = connection.delete_endpoint(**delete_arn)
+        delete_waiter = get_endpoint_deleted_waiter(connection)
+        delete_waiter.wait(
+            Filters=[{
+                'Name': 'endpoint-arn',
+                'Values': [endpoint_arn]
+
+            }],
+            WaiterConfig={
+                'Delay': module.params.get('timeout'),
+                'MaxAttempts': module.params.get('retries')
+            }
+        )
+        return delete_output
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Failed to delete the  DMS endpoint.")
 
@@ -339,12 +337,14 @@ def compare_params(param_described):
     modparams = create_module_params()
     changed = False
     for paramname in modparams:
-        if paramname == 'Password' or paramname in param_described \
-                and param_described[paramname] == modparams[paramname] or \
-                str(param_described[paramname]).lower() \
-                == modparams[paramname]:
-            pass
-        else:
+        if (
+            paramname != 'Password'
+            and (
+                paramname not in param_described
+                or param_described[paramname] != modparams[paramname]
+            )
+            and str(param_described[paramname]).lower() != modparams[paramname]
+        ):
             changed = True
     return changed
 
@@ -377,23 +377,39 @@ def main():
         state=dict(choices=['present', 'absent'], default='present'),
         endpointidentifier=dict(required=True),
         endpointtype=dict(choices=['source', 'target'], required=True),
-        enginename=dict(choices=['mysql', 'oracle', 'postgres', 'mariadb',
-                                 'aurora', 'redshift', 's3', 'db2', 'azuredb',
-                                 'sybase', 'dynamodb', 'mongodb', 'sqlserver'],
-                        required=True),
-        username=dict(),
+        enginename=dict(
+            choices=[
+                'mysql',
+                'oracle',
+                'postgres',
+                'mariadb',
+                'aurora',
+                'redshift',
+                's3',
+                'db2',
+                'azuredb',
+                'sybase',
+                'dynamodb',
+                'mongodb',
+                'sqlserver',
+            ],
+            required=True,
+        ),
+        username={},
         password=dict(no_log=True),
-        servername=dict(),
+        servername={},
         port=dict(type='int'),
-        databasename=dict(),
-        extraconnectionattributes=dict(),
+        databasename={},
+        extraconnectionattributes={},
         kmskeyid=dict(no_log=False),
         tags=dict(type='dict'),
-        certificatearn=dict(),
-        sslmode=dict(choices=['none', 'require', 'verify-ca', 'verify-full'],
-                     default='none'),
-        serviceaccessrolearn=dict(),
-        externaltabledefinition=dict(),
+        certificatearn={},
+        sslmode=dict(
+            choices=['none', 'require', 'verify-ca', 'verify-full'],
+            default='none',
+        ),
+        serviceaccessrolearn={},
+        externaltabledefinition={},
         dynamodbsettings=dict(type='dict'),
         s3settings=dict(type='dict'),
         dmstransfersettings=dict(type='dict'),
@@ -402,8 +418,9 @@ def main():
         elasticsearchsettings=dict(type='dict'),
         wait=dict(type='bool', default=False),
         timeout=dict(type='int'),
-        retries=dict(type='int')
+        retries=dict(type='int'),
     )
+
     global module
     module = AnsibleAWSModule(
         argument_spec=argument_spec,
@@ -426,8 +443,7 @@ def main():
         if endpoint_exists(endpoint):
             module.params['EndpointArn'] = \
                 endpoint['Endpoints'][0].get('EndpointArn')
-            params_changed = compare_params(endpoint["Endpoints"][0])
-            if params_changed:
+            if params_changed := compare_params(endpoint["Endpoints"][0]):
                 updated_dms = modify_dms_endpoint(dmsclient)
                 exit_message = updated_dms
                 changed = True

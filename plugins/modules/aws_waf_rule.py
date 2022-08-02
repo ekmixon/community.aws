@@ -158,8 +158,9 @@ from ansible_collections.amazon.aws.plugins.module_utils.waf import (
 
 
 def get_rule_by_name(client, module, name):
-    rules = [d['RuleId'] for d in list_rules(client, module) if d['Name'] == name]
-    if rules:
+    if rules := [
+        d['RuleId'] for d in list_rules(client, module) if d['Name'] == name
+    ]:
         return rules[0]
 
 
@@ -194,13 +195,13 @@ def find_and_update_rule(client, module, rule_id):
     rule = get_rule(client, module, rule_id)
     rule_id = rule['RuleId']
 
-    existing_conditions = dict((condition_type, dict()) for condition_type in MATCH_LOOKUP)
-    desired_conditions = dict((condition_type, dict()) for condition_type in MATCH_LOOKUP)
-    all_conditions = dict()
+    existing_conditions = {condition_type: {} for condition_type in MATCH_LOOKUP}
+    desired_conditions = {condition_type: {} for condition_type in MATCH_LOOKUP}
+    all_conditions = {}
 
     for condition_type in MATCH_LOOKUP:
         method = 'list_' + MATCH_LOOKUP[condition_type]['method'] + 's'
-        all_conditions[condition_type] = dict()
+        all_conditions[condition_type] = {}
         try:
             paginator = client.get_paginator(method)
             func = paginator.paginate().build_full_result
@@ -211,7 +212,7 @@ def find_and_update_rule(client, module, rule_id):
         try:
             pred_results = func()[MATCH_LOOKUP[condition_type]['conditionset'] + 's']
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-            module.fail_json_aws(e, msg='Could not list %s conditions' % condition_type)
+            module.fail_json_aws(e, msg=f'Could not list {condition_type} conditions')
         for pred in pred_results:
             pred['DataId'] = pred[MATCH_LOOKUP[condition_type]['conditionset'] + 'Id']
             all_conditions[condition_type][pred['Name']] = camel_dict_to_snake_dict(pred)
@@ -220,25 +221,37 @@ def find_and_update_rule(client, module, rule_id):
     for condition in module.params['conditions']:
         desired_conditions[condition['type']][condition['name']] = condition
 
-    reverse_condition_types = dict((v['type'], k) for (k, v) in MATCH_LOOKUP.items())
+    reverse_condition_types = {v['type']: k for (k, v) in MATCH_LOOKUP.items()}
     for condition in rule['Predicates']:
         existing_conditions[reverse_condition_types[condition['Type']]][condition['DataId']] = camel_dict_to_snake_dict(condition)
 
-    insertions = list()
-    deletions = list()
+    insertions = []
+    deletions = []
 
-    for condition_type in desired_conditions:
-        for (condition_name, condition) in desired_conditions[condition_type].items():
+    for condition_type, value in desired_conditions.items():
+        for (condition_name, condition) in value.items():
             if condition_name not in all_conditions[condition_type]:
-                module.fail_json(msg="Condition %s of type %s does not exist" % (condition_name, condition_type))
+                module.fail_json(
+                    msg=f"Condition {condition_name} of type {condition_type} does not exist"
+                )
+
             condition['data_id'] = all_conditions[condition_type][condition_name]['data_id']
             if condition['data_id'] not in existing_conditions[condition_type]:
                 insertions.append(format_for_insertion(condition))
 
     if module.params['purge_conditions']:
-        for condition_type in existing_conditions:
-            deletions.extend([format_for_deletion(condition) for condition in existing_conditions[condition_type].values()
-                              if not all_conditions[condition_type][condition['data_id']]['name'] in desired_conditions[condition_type]])
+        for condition_type, value_ in existing_conditions.items():
+            deletions.extend(
+                [
+                    format_for_deletion(condition)
+                    for condition in value_.values()
+                    if all_conditions[condition_type][condition['data_id']][
+                        'name'
+                    ]
+                    not in desired_conditions[condition_type]
+                ]
+            )
+
 
     changed = bool(insertions or deletions)
     update = {
@@ -279,21 +292,20 @@ def remove_rule_conditions(client, module, rule_id):
 
 def ensure_rule_present(client, module):
     name = module.params['name']
-    rule_id = get_rule_by_name(client, module, name)
-    params = dict()
-    if rule_id:
+    if rule_id := get_rule_by_name(client, module, name):
         return find_and_update_rule(client, module, rule_id)
-    else:
-        params['Name'] = module.params['name']
-        metric_name = module.params['metric_name']
-        if not metric_name:
-            metric_name = re.sub(r'[^a-zA-Z0-9]', '', module.params['name'])
-        params['MetricName'] = metric_name
-        try:
-            new_rule = run_func_with_change_token_backoff(client, module, params, client.create_rule)['Rule']
-        except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-            module.fail_json_aws(e, msg='Could not create rule')
-        return find_and_update_rule(client, module, new_rule['RuleId'])
+    params = {}
+    params['Name'] = module.params['name']
+    metric_name = module.params['metric_name'] or re.sub(
+        r'[^a-zA-Z0-9]', '', module.params['name']
+    )
+
+    params['MetricName'] = metric_name
+    try:
+        new_rule = run_func_with_change_token_backoff(client, module, params, client.create_rule)['Rule']
+    except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+        module.fail_json_aws(e, msg='Could not create rule')
+    return find_and_update_rule(client, module, new_rule['RuleId'])
 
 
 def find_rule_in_web_acls(client, module, rule_id):
@@ -317,11 +329,12 @@ def find_rule_in_web_acls(client, module, rule_id):
 
 def ensure_rule_absent(client, module):
     rule_id = get_rule_by_name(client, module, module.params['name'])
-    in_use_web_acls = find_rule_in_web_acls(client, module, rule_id)
-    if in_use_web_acls:
+    if in_use_web_acls := find_rule_in_web_acls(client, module, rule_id):
         web_acl_names = ', '.join(in_use_web_acls)
-        module.fail_json(msg="Rule %s is in use by Web ACL(s) %s" %
-                         (module.params['name'], web_acl_names))
+        module.fail_json(
+            msg=f"Rule {module.params['name']} is in use by Web ACL(s) {web_acl_names}"
+        )
+
     if rule_id:
         remove_rule_conditions(client, module, rule_id)
         try:
@@ -334,16 +347,17 @@ def ensure_rule_absent(client, module):
 def main():
     argument_spec = dict(
         name=dict(required=True),
-        metric_name=dict(),
+        metric_name={},
         state=dict(default='present', choices=['present', 'absent']),
         conditions=dict(type='list', elements='dict'),
         purge_conditions=dict(type='bool', default=False),
         waf_regional=dict(type='bool', default=False),
     )
+
     module = AnsibleAWSModule(argument_spec=argument_spec)
     state = module.params.get('state')
 
-    resource = 'waf' if not module.params['waf_regional'] else 'waf-regional'
+    resource = 'waf-regional' if module.params['waf_regional'] else 'waf'
     client = module.client(resource)
     if state == 'present':
         (changed, results) = ensure_rule_present(client, module)

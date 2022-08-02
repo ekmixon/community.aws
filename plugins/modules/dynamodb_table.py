@@ -337,15 +337,11 @@ def wait_not_exists():
 
 
 def _short_type_to_long(short_key):
-    if not short_key:
-        return None
-    return DYNAMO_TYPE_MAP_SHORT.get(short_key, None)
+    return DYNAMO_TYPE_MAP_SHORT.get(short_key, None) if short_key else None
 
 
 def _long_type_to_short(long_key):
-    if not long_key:
-        return None
-    return DYNAMO_TYPE_MAP_LONG.get(long_key, None)
+    return DYNAMO_TYPE_MAP_LONG.get(long_key, None) if long_key else None
 
 
 def _schema_dict(key_name, key_type):
@@ -357,7 +353,7 @@ def _schema_dict(key_name, key_type):
 
 def _merge_index_params(index, current_index):
     idx = dict(current_index)
-    idx.update(index)
+    idx |= index
     return idx
 
 
@@ -403,7 +399,7 @@ def _decode_index(index_data, attributes, type_prefix=''):
         index_data = dict(index_data)
         index_data['attribute_definitions'] = attributes
 
-        index_map.update(_decode_primary_index(index_data))
+        index_map |= _decode_primary_index(index_data)
 
         throughput = index_data.get('provisioned_throughput', {})
         index_map['provisioned_throughput'] = throughput
@@ -411,8 +407,7 @@ def _decode_index(index_data, attributes, type_prefix=''):
             index_map['read_capacity'] = throughput.get('read_capacity_units')
             index_map['write_capacity'] = throughput.get('write_capacity_units')
 
-        projection = index_data.get('projection', {})
-        if projection:
+        if projection := index_data.get('projection', {}):
             index_map['type'] = type_prefix + projection.get('projection_type')
             index_map['includes'] = projection.get('non_key_attributes', [])
 
@@ -423,7 +418,7 @@ def _decode_index(index_data, attributes, type_prefix=''):
 
 def compatability_results(current_table):
     if not current_table:
-        return dict()
+        return {}
 
     billing_mode = current_table.get('billing_mode')
 
@@ -434,7 +429,7 @@ def compatability_results(current_table):
     range_key_name = primary_indexes.get('range_key_name')
     range_key_type = primary_indexes.get('range_key_type')
 
-    indexes = list()
+    indexes = []
     global_indexes = current_table.get('_global_index_map', {})
     local_indexes = current_table.get('_local_index_map', {})
     for index in global_indexes:
@@ -510,8 +505,8 @@ def get_dynamodb_table():
 
     # convert indexes into something we can easily search against
     attributes = table['attribute_definitions']
-    global_index_map = dict()
-    local_index_map = dict()
+    global_index_map = {}
+    local_index_map = {}
     for index in table.get('global_secondary_indexes', []):
         idx = _decode_index(index, attributes, type_prefix='global_')
         global_index_map[idx['name']] = idx
@@ -528,15 +523,15 @@ def _generate_attribute_map():
     """
     Builds a map of Key Names to Type
     """
-    attributes = dict()
+    attributes = {}
 
     for index in (module.params, *module.params.get('indexes')):
         # run through hash_key_name and range_key_name
         for t in ['hash', 'range']:
-            key_name = index.get(t + '_key_name')
+            key_name = index.get(f'{t}_key_name')
             if not key_name:
                 continue
-            key_type = index.get(t + '_key_type') or DYNAMO_TYPE_DEFAULT
+            key_type = index.get(f'{t}_key_type') or DYNAMO_TYPE_DEFAULT
             _type = _long_type_to_short(key_type)
             if key_name in attributes:
                 if _type != attributes[key_name]:
@@ -568,19 +563,17 @@ def _generate_throughput(params=None):
 
     read_capacity = params.get('read_capacity') or 1
     write_capacity = params.get('write_capacity') or 1
-    throughput = dict(
+    return dict(
         ReadCapacityUnits=read_capacity,
         WriteCapacityUnits=write_capacity,
     )
-
-    return throughput
 
 
 def _generate_schema(params=None):
     if not params:
         params = module.params
 
-    schema = list()
+    schema = []
     hash_key_name = params.get('hash_key_name')
     range_key_name = params.get('range_key_name')
 
@@ -607,7 +600,7 @@ def _primary_index_changes(current_table):
     range_key_type = primary_index.get('range_key_type')
     _range_key_type = module.params.get('range_key_type')
 
-    changed = list()
+    changed = []
 
     if _hash_key_name and (_hash_key_name != hash_key_name):
         changed.append('hash_key_name')
@@ -638,18 +631,14 @@ def _throughput_changes(current_table, params=None):
             WriteCapacityUnits=_write_capacity,
         )
 
-    return dict()
+    return {}
 
 
 def _generate_global_indexes(billing_mode):
-    index_exists = dict()
-    indexes = list()
+    index_exists = {}
+    indexes = []
 
-    include_throughput = True
-
-    if billing_mode == "PAY_PER_REQUEST":
-        include_throughput = False
-
+    include_throughput = billing_mode != "PAY_PER_REQUEST"
     for index in module.params.get('indexes'):
         if index.get('type') not in ['global_all', 'global_include', 'global_keys_only']:
             continue
@@ -666,11 +655,11 @@ def _generate_global_indexes(billing_mode):
 
 
 def _generate_local_indexes():
-    index_exists = dict()
-    indexes = list()
+    index_exists = {}
+    indexes = []
 
     for index in module.params.get('indexes'):
-        index = dict()
+        index = {}
         if index.get('type') not in ['all', 'include', 'keys_only']:
             continue
         name = index.get('name')
@@ -685,7 +674,7 @@ def _generate_local_indexes():
 
 
 def _generate_global_index_map(current_table):
-    global_index_map = dict()
+    global_index_map = {}
     existing_indexes = current_table['_global_index_map']
     for index in module.params.get('indexes'):
         if index.get('type') not in ['global_all', 'global_include', 'global_keys_only']:
@@ -701,7 +690,7 @@ def _generate_global_index_map(current_table):
 
 
 def _generate_local_index_map(current_table):
-    local_index_map = dict()
+    local_index_map = {}
     existing_indexes = current_table['_local_index_map']
     for index in module.params.get('indexes'):
         if index.get('type') not in ['all', 'include', 'keys_only']:
@@ -725,11 +714,10 @@ def _generate_index(index, include_throughput=True):
     )
     if index['type'] != 'ALL':
         projection['NonKeyAttributes'] = non_key_attributes
-    else:
-        if non_key_attributes:
-            module.fail_json(
-                "DynamoDB does not support specifying non-key-attributes ('includes') for "
-                "indexes of type 'all'. Index name: {0}".format(index['name']))
+    elif non_key_attributes:
+        module.fail_json(
+            "DynamoDB does not support specifying non-key-attributes ('includes') for "
+            "indexes of type 'all'. Index name: {0}".format(index['name']))
 
     idx = dict(
         IndexName=index['name'],
@@ -759,12 +747,8 @@ def _global_index_changes(current_table):
     else:
         billing_mode = module.params.get('billing_mode')
 
-    include_throughput = True
-
-    if billing_mode == "PAY_PER_REQUEST":
-        include_throughput = False
-
-    index_changes = list()
+    include_throughput = billing_mode != "PAY_PER_REQUEST"
+    index_changes = []
 
     # TODO (future) it would be nice to add support for deleting an index
     for name in global_index_map:
@@ -780,8 +764,7 @@ def _global_index_changes(current_table):
             _new = global_index_map[name]
 
             if include_throughput:
-                change = dict(_throughput_changes(_current, _new))
-                if change:
+                if change := dict(_throughput_changes(_current, _new)):
                     update = dict(
                         IndexName=name,
                         ProvisionedThroughput=change,
@@ -799,12 +782,10 @@ def _local_index_changes(current_table):
 
 
 def _update_table(current_table):
-    changes = dict()
-    additional_global_index_changes = list()
+    changes = {}
+    additional_global_index_changes = []
 
-    # Get throughput / billing_mode changes
-    throughput_changes = _throughput_changes(current_table)
-    if throughput_changes:
+    if throughput_changes := _throughput_changes(current_table):
         changes['ProvisionedThroughput'] = throughput_changes
 
     current_billing_mode = current_table.get('billing_mode')
@@ -817,9 +798,10 @@ def _update_table(current_table):
         changes['BillingMode'] = new_billing_mode
 
     # Update table_class use exisiting if none is defined
-    if module.params.get('table_class'):
-        if module.params.get('table_class') != current_table.get('table_class'):
-            changes['TableClass'] = module.params.get('table_class')
+    if module.params.get('table_class') and module.params.get(
+        'table_class'
+    ) != current_table.get('table_class'):
+        changes['TableClass'] = module.params.get('table_class')
 
     global_index_changes = _global_index_changes(current_table)
     if global_index_changes:
@@ -828,10 +810,12 @@ def _update_table(current_table):
         # main update and deal with the others on a slow retry to wait for
         # completion
 
-        if current_billing_mode == new_billing_mode:
-            if len(global_index_changes) > 1:
-                changes['GlobalSecondaryIndexUpdates'] = [global_index_changes[0]]
-                additional_global_index_changes = global_index_changes[1:]
+        if (
+            current_billing_mode == new_billing_mode
+            and len(global_index_changes) > 1
+        ):
+            changes['GlobalSecondaryIndexUpdates'] = [global_index_changes[0]]
+            additional_global_index_changes = global_index_changes[1:]
 
     local_index_changes = _local_index_changes(current_table)
     if local_index_changes:
@@ -907,8 +891,7 @@ def _update_tags(current_table):
 
 
 def update_table(current_table):
-    primary_index_changes = _primary_index_changes(current_table)
-    if primary_index_changes:
+    if primary_index_changes := _primary_index_changes(current_table):
         module.fail_json("DynamoDB does not support updating the Primary keys on a table. Changed paramters are: {0}".format(primary_index_changes))
 
     changed = False
@@ -1064,7 +1047,7 @@ def main():
     current_table = get_dynamodb_table()
     changed = False
     table = None
-    results = dict()
+    results = {}
 
     state = module.params.get('state')
     if state == 'present':
@@ -1076,9 +1059,8 @@ def main():
     elif state == 'absent':
         changed |= delete_table(current_table)
 
-    compat_results = compatability_results(table)
-    if compat_results:
-        results.update(compat_results)
+    if compat_results := compatability_results(table):
+        results |= compat_results
 
     results['changed'] = changed
     if table:

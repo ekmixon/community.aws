@@ -247,7 +247,12 @@ def set_api_params(module, module_params):
     :param module_params:
     :return:
     """
-    api_params = dict((k, v) for k, v in dict(module.params).items() if k in module_params and v is not None)
+    api_params = {
+        k: v
+        for k, v in dict(module.params).items()
+        if k in module_params and v is not None
+    }
+
     return snake_dict_to_camel_dict(api_params)
 
 
@@ -267,10 +272,12 @@ def validate_params(module):
             msg="Function compute_environment_name {0} is invalid. Names must contain only alphanumeric characters "
                 "and underscores.".format(compute_environment_name)
         )
-    if not compute_environment_name.startswith('arn:aws:batch:'):
-        if len(compute_environment_name) > 128:
-            module.fail_json(msg='compute_environment_name "{0}" exceeds 128 character limit'
-                             .format(compute_environment_name))
+    if (
+        not compute_environment_name.startswith('arn:aws:batch:')
+        and len(compute_environment_name) > 128
+    ):
+        module.fail_json(msg='compute_environment_name "{0}" exceeds 128 character limit'
+                         .format(compute_environment_name))
 
     return
 
@@ -361,7 +368,6 @@ def remove_compute_environment(module, client):
 
 def manage_state(module, client):
     changed = False
-    current_state = 'absent'
     state = module.params['state']
     compute_environment_state = module.params['compute_environment_state']
     compute_environment_name = module.params['compute_environment_name']
@@ -377,22 +383,20 @@ def manage_state(module, client):
     # check if the compute environment exists
     current_compute_environment = get_current_compute_environment(module, client)
     response = current_compute_environment
-    if current_compute_environment:
-        current_state = 'present'
-
+    current_state = 'present' if current_compute_environment else 'absent'
     if state == 'present':
         if current_state == 'present':
-            updates = False
             # Update Batch Compute Environment configuration
             compute_kwargs = {'computeEnvironment': compute_environment_name}
 
             # Update configuration if needed
             compute_resources = {}
+            updates = False
             if compute_environment_state and current_compute_environment['state'] != compute_environment_state:
-                compute_kwargs.update({'state': compute_environment_state})
+                compute_kwargs['state'] = compute_environment_state
                 updates = True
             if service_role and current_compute_environment['serviceRole'] != service_role:
-                compute_kwargs.update({'serviceRole': service_role})
+                compute_kwargs['serviceRole'] = service_role
                 updates = True
             if minv_cpus is not None and current_compute_environment['computeResources']['minvCpus'] != minv_cpus:
                 compute_resources['minvCpus'] = minv_cpus
@@ -400,7 +404,7 @@ def manage_state(module, client):
                 compute_resources['maxvCpus'] = maxv_cpus
             if desiredv_cpus is not None and current_compute_environment['computeResources']['desiredvCpus'] != desiredv_cpus:
                 compute_resources['desiredvCpus'] = desiredv_cpus
-            if len(compute_resources) > 0:
+            if compute_resources:
                 compute_kwargs['computeResources'] = compute_resources
                 updates = True
             if updates:
@@ -422,11 +426,10 @@ def manage_state(module, client):
         response = get_current_compute_environment(module, client)
         if not response:
             module.fail_json(msg='Unable to get compute environment information after creating')
-    else:
-        if current_state == 'present':
-            # remove the compute environment
-            changed = remove_compute_environment(module, client)
-            action_taken = 'deleted'
+    elif current_state == 'present':
+        # remove the compute environment
+        changed = remove_compute_environment(module, client)
+        action_taken = 'deleted'
     return dict(changed=changed, batch_compute_environment_action=action_taken, response=response)
 
 
@@ -447,22 +450,25 @@ def main():
         state=dict(default='present', choices=['present', 'absent']),
         compute_environment_name=dict(required=True),
         type=dict(required=True, choices=['MANAGED', 'UNMANAGED']),
-        compute_environment_state=dict(required=False, default='ENABLED', choices=['ENABLED', 'DISABLED']),
+        compute_environment_state=dict(
+            required=False, default='ENABLED', choices=['ENABLED', 'DISABLED']
+        ),
         service_role=dict(required=True),
         compute_resource_type=dict(required=True, choices=['EC2', 'SPOT']),
         minv_cpus=dict(type='int', required=True),
         maxv_cpus=dict(type='int', required=True),
         desiredv_cpus=dict(type='int'),
         instance_types=dict(type='list', required=True, elements='str'),
-        image_id=dict(),
+        image_id={},
         subnets=dict(type='list', required=True, elements='str'),
         security_group_ids=dict(type='list', required=True, elements='str'),
         ec2_key_pair=dict(no_log=False),
         instance_role=dict(required=True),
         tags=dict(type='dict'),
         bid_percentage=dict(type='int'),
-        spot_iam_fleet_role=dict(),
+        spot_iam_fleet_role={},
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

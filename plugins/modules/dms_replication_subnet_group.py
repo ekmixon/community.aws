@@ -111,14 +111,14 @@ def create_module_params(module):
     Reads the module parameters and returns a dict
     :return: dict
     """
-    instance_parameters = dict(
+    return dict(
         # ReplicationSubnetGroupIdentifier gets translated to lower case anyway by the API
-        ReplicationSubnetGroupIdentifier=module.params.get('identifier').lower(),
+        ReplicationSubnetGroupIdentifier=module.params.get(
+            'identifier'
+        ).lower(),
         ReplicationSubnetGroupDescription=module.params.get('description'),
         SubnetIds=module.params.get('subnet_ids'),
     )
-
-    return instance_parameters
 
 
 def compare_params(module, param_described):
@@ -141,12 +141,11 @@ def compare_params(module, param_described):
                 param_described.get(paramname) == modparams[paramname]:
             pass
         elif paramname == 'SubnetIds':
-            subnets = []
-            for subnet in param_described.get('Subnets'):
-                subnets.append(subnet.get('SubnetIdentifier'))
-            for modulesubnet in modparams['SubnetIds']:
-                if modulesubnet in subnets:
-                    pass
+            subnets = [
+                subnet.get('SubnetIdentifier')
+                for subnet in param_described.get('Subnets')
+            ]
+
         else:
             changed = True
     return changed
@@ -189,30 +188,29 @@ def main():
     if state == 'present':
         if replication_subnet_exists(subnet_group):
             if compare_params(module, subnet_group["ReplicationSubnetGroups"][0]):
-                if not module.check_mode:
-                    exit_message = modify_replication_subnet_group(module, dmsclient)
-                else:
-                    exit_message = dmsclient
+                exit_message = (
+                    dmsclient
+                    if module.check_mode
+                    else modify_replication_subnet_group(module, dmsclient)
+                )
+
                 changed = True
             else:
                 exit_message = "No changes to Subnet group"
-        else:
-            if not module.check_mode:
-                exit_message = create_replication_subnet_group(module, dmsclient)
-                changed = True
-            else:
-                exit_message = "Check mode enabled"
+        elif module.check_mode:
+            exit_message = "Check mode enabled"
 
+        else:
+            exit_message = create_replication_subnet_group(module, dmsclient)
+            changed = True
     elif state == 'absent':
         if replication_subnet_exists(subnet_group):
             if not module.check_mode:
                 replication_subnet_group_delete(module, dmsclient)
-                changed = True
                 exit_message = "Replication subnet group Deleted"
             else:
                 exit_message = dmsclient
-                changed = True
-
+            changed = True
         else:
             changed = False
             exit_message = "Replication subnet group does not exist"

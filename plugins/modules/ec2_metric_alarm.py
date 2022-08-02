@@ -225,9 +225,11 @@ def create_metric_alarm(connection, module, params):
         params['ComparisonOperator'] = comparisons[params['ComparisonOperator']]
 
     if not isinstance(params['Dimensions'], list):
-        fixed_dimensions = []
-        for key, value in params['Dimensions'].items():
-            fixed_dimensions.append({'Name': key, 'Value': value})
+        fixed_dimensions = [
+            {'Name': key, 'Value': value}
+            for key, value in params['Dimensions'].items()
+        ]
+
         params['Dimensions'] = fixed_dimensions
 
     if not alarms['MetricAlarms']:
@@ -255,9 +257,8 @@ def create_metric_alarm(connection, module, params):
             alarm = params
 
         try:
-            if changed:
-                if not module.check_mode:
-                    connection.put_metric_alarm(**alarm)
+            if changed and not module.check_mode:
+                connection.put_metric_alarm(**alarm)
         except ClientError as e:
             module.fail_json_aws(e)
 
@@ -266,10 +267,7 @@ def create_metric_alarm(connection, module, params):
     except ClientError as e:
         module.fail_json_aws(e)
 
-    result = {}
-    if alarms['MetricAlarms']:
-        result = alarms['MetricAlarms'][0]
-
+    result = alarms['MetricAlarms'][0] if alarms['MetricAlarms'] else {}
     module.exit_json(changed=changed,
                      name=result.get('AlarmName'),
                      actions_enabled=result.get('ActionsEnabled'),
@@ -336,7 +334,7 @@ def main():
 
     state = module.params.get('state')
 
-    params = dict()
+    params = {}
     params['AlarmName'] = module.params.get('name')
     params['MetricName'] = module.params.get('metric')
     params['Namespace'] = module.params.get('namespace')

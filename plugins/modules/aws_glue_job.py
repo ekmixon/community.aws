@@ -281,7 +281,7 @@ def _compare_glue_job_params(user_params, current_params):
     if 'Description' not in current_params:
         current_params['Description'] = ""
     if 'DefaultArguments' not in current_params:
-        current_params['DefaultArguments'] = dict()
+        current_params['DefaultArguments'] = {}
 
     if 'AllocatedCapacity' in user_params and user_params['AllocatedCapacity'] != current_params['AllocatedCapacity']:
         return True
@@ -306,14 +306,12 @@ def _compare_glue_job_params(user_params, current_params):
         return True
     if 'Timeout' in user_params and user_params['Timeout'] != current_params['Timeout']:
         return True
-    if 'GlueVersion' in user_params and user_params['GlueVersion'] != current_params['GlueVersion']:
-        return True
     if 'WorkerType' in user_params and user_params['WorkerType'] != current_params['WorkerType']:
         return True
-    if 'NumberOfWorkers' in user_params and user_params['NumberOfWorkers'] != current_params['NumberOfWorkers']:
-        return True
-
-    return False
+    return (
+        'NumberOfWorkers' in user_params
+        and user_params['NumberOfWorkers'] != current_params['NumberOfWorkers']
+    )
 
 
 def ensure_tags(connection, module, glue_job):
@@ -331,7 +329,11 @@ def ensure_tags(connection, module, glue_job):
         if module.check_mode:
             existing_tags = {}
         else:
-            module.fail_json_aws(e, msg='Unable to get tags for Glue job %s' % module.params.get('name'))
+            module.fail_json_aws(
+                e,
+                msg=f"Unable to get tags for Glue job {module.params.get('name')}",
+            )
+
 
     tags_to_add, tags_to_remove = compare_aws_tags(existing_tags, module.params.get('tags'), module.params.get('purge_tags'))
 
@@ -341,7 +343,11 @@ def ensure_tags(connection, module, glue_job):
             try:
                 connection.untag_resource(aws_retry=True, ResourceArn=arn, TagsToRemove=tags_to_remove)
             except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                module.fail_json_aws(e, msg='Unable to set tags for Glue job %s' % module.params.get('name'))
+                module.fail_json_aws(
+                    e,
+                    msg=f"Unable to set tags for Glue job {module.params.get('name')}",
+                )
+
 
     if tags_to_add:
         changed = True
@@ -349,7 +355,11 @@ def ensure_tags(connection, module, glue_job):
             try:
                 connection.tag_resource(aws_retry=True, ResourceArn=arn, TagsToAdd=tags_to_add)
             except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                module.fail_json_aws(e, msg='Unable to set tags for Glue job %s' % module.params.get('name'))
+                module.fail_json_aws(
+                    e,
+                    msg=f"Unable to set tags for Glue job {module.params.get('name')}",
+                )
+
 
     return changed
 
@@ -365,8 +375,7 @@ def create_or_update_glue_job(connection, module, glue_job):
     """
 
     changed = False
-    params = dict()
-    params['Name'] = module.params.get("name")
+    params = {'Name': module.params.get("name")}
     params['Role'] = module.params.get("role")
     if module.params.get("allocated_capacity") is not None:
         params['AllocatedCapacity'] = module.params.get("allocated_capacity")

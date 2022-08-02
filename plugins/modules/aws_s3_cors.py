@@ -108,18 +108,13 @@ def create_or_update_bucket_cors(connection, module):
 
     name = module.params.get("name")
     rules = module.params.get("rules", [])
-    changed = False
-
     try:
         current_camel_rules = connection.get_bucket_cors(Bucket=name)['CORSRules']
     except ClientError:
         current_camel_rules = []
 
     new_camel_rules = snake_dict_to_camel_dict(rules, capitalize_first=True)
-    # compare_policies() takes two dicts and makes them hashable for comparison
-    if compare_policies(new_camel_rules, current_camel_rules):
-        changed = True
-
+    changed = bool(compare_policies(new_camel_rules, current_camel_rules))
     if changed:
         try:
             cors = connection.put_bucket_cors(Bucket=name, CORSConfiguration={'CORSRules': new_camel_rules})

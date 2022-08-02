@@ -137,9 +137,9 @@ def list_ec2_vpc_nacls(connection, module):
         module.fail_json_aws(e, msg="Unable to describe network ACLs {0}".format(nacl_ids))
 
     # Turn the boto3 result in to ansible_friendly_snaked_names
-    snaked_nacls = []
-    for nacl in nacls['NetworkAcls']:
-        snaked_nacls.append(camel_dict_to_snake_dict(nacl))
+    snaked_nacls = [
+        camel_dict_to_snake_dict(nacl) for nacl in nacls['NetworkAcls']
+    ]
 
     # Turn the boto3 result in to ansible friendly tag dictionary
     for nacl in snaked_nacls:
@@ -165,9 +165,7 @@ def nacl_entry_to_list(entry):
 
     # entry list format
     # [ rule_num, protocol name or number, allow or deny, ipv4/6 cidr, icmp type, icmp code, port from, port to]
-    elist = []
-
-    elist.append(entry['rule_number'])
+    elist = [entry['rule_number']]
 
     if entry.get('protocol') in PROTOCOL_NAMES:
         elist.append(PROTOCOL_NAMES[entry['protocol']])
@@ -183,7 +181,7 @@ def nacl_entry_to_list(entry):
     else:
         elist.append(None)
 
-    elist = elist + [None, None, None, None]
+    elist += [None, None, None, None]
 
     if entry['protocol'] in ('1', '58'):
         elist[4] = entry.get('icmp_type_code', {}).get('type')

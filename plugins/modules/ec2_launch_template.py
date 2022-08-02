@@ -483,9 +483,10 @@ def params_to_launch_data(module, template_params):
     if module.params.get('iam_instance_profile'):
         template_params['iam_instance_profile'] = determine_iam_role(module, module.params['iam_instance_profile'])
     params = snake_dict_to_camel_dict(
-        dict((k, v) for k, v in template_params.items() if v is not None),
+        {k: v for k, v in template_params.items() if v is not None},
         capitalize_first=True,
     )
+
     return params
 
 
@@ -494,8 +495,11 @@ def delete_template(module):
     template, template_versions = existing_templates(module)
     deleted_versions = []
     if template or template_versions:
-        non_default_versions = [to_text(t['VersionNumber']) for t in template_versions if not t['DefaultVersion']]
-        if non_default_versions:
+        if non_default_versions := [
+            to_text(t['VersionNumber'])
+            for t in template_versions
+            if not t['DefaultVersion']
+        ]:
             try:
                 v_resp = ec2.delete_launch_template_versions(
                     LaunchTemplateId=template['LaunchTemplateId'],
@@ -530,7 +534,11 @@ def create_or_update(module, template_options):
     ec2 = module.client('ec2', retry_decorator=AWSRetry.jittered_backoff(catch_extra_error_codes=['InvalidLaunchTemplateId.NotFound']))
     template, template_versions = existing_templates(module)
     out = {}
-    lt_data = params_to_launch_data(module, dict((k, v) for k, v in module.params.items() if k in template_options))
+    lt_data = params_to_launch_data(
+        module,
+        {k: v for k, v in module.params.items() if k in template_options},
+    )
+
     lt_data = scrub_none_parameters(lt_data, descend_into_lists=True)
 
     if lt_data.get('MetadataOptions'):
@@ -604,14 +612,13 @@ def create_or_update(module, template_options):
 
 
 def format_module_output(module):
-    output = {}
     template, template_versions = existing_templates(module)
     template = camel_dict_to_snake_dict(template)
     template_versions = [camel_dict_to_snake_dict(v) for v in template_versions]
     for v in template_versions:
         for ts in (v['launch_template_data'].get('tag_specifications') or []):
             ts['tags'] = boto3_tag_list_to_ansible_dict(ts.pop('tags'))
-    output.update(dict(template=template, versions=template_versions))
+    output = {} | dict(template=template, versions=template_versions)
     output['default_template'] = [
         v for v in template_versions
         if v.get('default_version')
@@ -636,21 +643,21 @@ def main():
             type='list',
             elements='dict',
             options=dict(
-                device_name=dict(),
+                device_name={},
                 ebs=dict(
                     type='dict',
                     options=dict(
                         delete_on_termination=dict(type='bool'),
                         encrypted=dict(type='bool'),
                         iops=dict(type='int'),
-                        kms_key_id=dict(),
-                        snapshot_id=dict(),
+                        kms_key_id={},
+                        snapshot_id={},
                         volume_size=dict(type='int'),
-                        volume_type=dict(),
+                        volume_type={},
                     ),
                 ),
-                no_device=dict(),
-                virtual_name=dict(),
+                no_device={},
+                virtual_name={},
             ),
         ),
         cpu_options=dict(
@@ -661,54 +668,61 @@ def main():
             ),
         ),
         credit_specification=dict(
-            dict(type='dict'),
-            options=dict(
-                cpu_credits=dict(),
-            ),
+            dict(type='dict'), options=dict(cpu_credits={})
         ),
         disable_api_termination=dict(type='bool'),
         ebs_optimized=dict(type='bool'),
         elastic_gpu_specifications=dict(
-            options=dict(type=dict()),
-            type='list',
-            elements='dict',
+            options=dict(type={}), type='list', elements='dict'
         ),
-        iam_instance_profile=dict(),
-        image_id=dict(),
-        instance_initiated_shutdown_behavior=dict(choices=['stop', 'terminate']),
+        iam_instance_profile={},
+        image_id={},
+        instance_initiated_shutdown_behavior=dict(
+            choices=['stop', 'terminate']
+        ),
         instance_market_options=dict(
             type='dict',
             options=dict(
-                market_type=dict(),
+                market_type={},
                 spot_options=dict(
                     type='dict',
                     options=dict(
                         block_duration_minutes=dict(type='int'),
-                        instance_interruption_behavior=dict(choices=['hibernate', 'stop', 'terminate']),
-                        max_price=dict(),
-                        spot_instance_type=dict(choices=['one-time', 'persistent']),
+                        instance_interruption_behavior=dict(
+                            choices=['hibernate', 'stop', 'terminate']
+                        ),
+                        max_price={},
+                        spot_instance_type=dict(
+                            choices=['one-time', 'persistent']
+                        ),
                     ),
                 ),
             ),
         ),
-        instance_type=dict(),
-        kernel_id=dict(),
-        key_name=dict(),
+        instance_type={},
+        kernel_id={},
+        key_name={},
         monitoring=dict(
             type='dict',
-            options=dict(
-                enabled=dict(type='bool')
-            ),
+            options=dict(enabled=dict(type='bool')),
         ),
         metadata_options=dict(
             type='dict',
             options=dict(
-                http_endpoint=dict(choices=['enabled', 'disabled'], default='enabled'),
+                http_endpoint=dict(
+                    choices=['enabled', 'disabled'], default='enabled'
+                ),
                 http_put_response_hop_limit=dict(type='int', default=1),
-                http_tokens=dict(choices=['optional', 'required'], default='optional'),
-                http_protocol_ipv6=dict(choices=['disabled', 'enabled'], default='disabled'),
-                instance_metadata_tags=dict(choices=['disabled', 'enabled'], default='disabled'),
-            )
+                http_tokens=dict(
+                    choices=['optional', 'required'], default='optional'
+                ),
+                http_protocol_ipv6=dict(
+                    choices=['disabled', 'enabled'], default='disabled'
+                ),
+                instance_metadata_tags=dict(
+                    choices=['disabled', 'enabled'], default='disabled'
+                ),
+            ),
         ),
         network_interfaces=dict(
             type='list',
@@ -716,41 +730,43 @@ def main():
             options=dict(
                 associate_public_ip_address=dict(type='bool'),
                 delete_on_termination=dict(type='bool'),
-                description=dict(),
+                description={},
                 device_index=dict(type='int'),
                 groups=dict(type='list', elements='str'),
                 ipv6_address_count=dict(type='int'),
                 ipv6_addresses=dict(type='list', elements='str'),
-                network_interface_id=dict(),
-                private_ip_address=dict(),
-                subnet_id=dict(),
+                network_interface_id={},
+                private_ip_address={},
+                subnet_id={},
             ),
         ),
         placement=dict(
             options=dict(
-                affinity=dict(),
-                availability_zone=dict(),
-                group_name=dict(),
-                host_id=dict(),
-                tenancy=dict(),
+                affinity={},
+                availability_zone={},
+                group_name={},
+                host_id={},
+                tenancy={},
             ),
             type='dict',
         ),
-        ram_disk_id=dict(),
+        ram_disk_id={},
         security_group_ids=dict(type='list', elements='str'),
         security_groups=dict(type='list', elements='str'),
         tags=dict(type='dict'),
-        user_data=dict(),
+        user_data={},
     )
 
-    arg_spec = dict(
-        state=dict(choices=['present', 'absent'], default='present'),
-        template_name=dict(aliases=['name']),
-        template_id=dict(aliases=['id']),
-        default_version=dict(default='latest'),
-    )
 
-    arg_spec.update(template_options)
+    arg_spec = (
+        dict(
+            state=dict(choices=['present', 'absent'], default='present'),
+            template_name=dict(aliases=['name']),
+            template_id=dict(aliases=['id']),
+            default_version=dict(default='latest'),
+        )
+        | template_options
+    )
 
     module = AnsibleAWSModule(
         argument_spec=arg_spec,

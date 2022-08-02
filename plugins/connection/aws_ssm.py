@@ -233,7 +233,7 @@ def _ssm_retry(func):
     @wraps(func)
     def wrapped(self, *args, **kwargs):
         remaining_tries = int(self.get_option('reconnection_retries')) + 1
-        cmd_summary = "%s..." % args[0]
+        cmd_summary = f"{args[0]}..."
         for attempt in range(remaining_tries):
             cmd = args[0]
 
@@ -245,26 +245,22 @@ def _ssm_retry(func):
             except (AnsibleConnectionFailure, Exception) as e:
                 if attempt == remaining_tries - 1:
                     raise
+                pause = 2 ** attempt - 1
+                pause = min(pause, 30)
+                if isinstance(e, AnsibleConnectionFailure):
+                    msg = "ssm_retry: attempt: %d, cmd (%s), pausing for %d seconds" % (attempt, cmd_summary, pause)
                 else:
-                    pause = 2 ** attempt - 1
-                    if pause > 30:
-                        pause = 30
+                    msg = "ssm_retry: attempt: %d, caught exception(%s) from cmd (%s), pausing for %d seconds" % (attempt, e, cmd_summary, pause)
 
-                    if isinstance(e, AnsibleConnectionFailure):
-                        msg = "ssm_retry: attempt: %d, cmd (%s), pausing for %d seconds" % (attempt, cmd_summary, pause)
-                    else:
-                        msg = "ssm_retry: attempt: %d, caught exception(%s) from cmd (%s), pausing for %d seconds" % (attempt, e, cmd_summary, pause)
+                display.vv(msg, host=self.host)
 
-                    display.vv(msg, host=self.host)
+                time.sleep(pause)
 
-                    time.sleep(pause)
-
-                    # Do not attempt to reuse the existing session on retries
-                    self.close()
-
-                    continue
+                # Do not attempt to reuse the existing session on retries
+                self.close()
 
         return return_tuple
+
     return wrapped
 
 
@@ -340,7 +336,7 @@ class Connection(ConnectionBase):
 
         profile_name = self.get_option('profile') or ''
         region_name = self.get_option('region')
-        ssm_parameters = dict()
+        ssm_parameters = {}
         client = self._get_boto_client('ssm', region_name=region_name, profile_name=profile_name)
         self._client = client
         response = client.start_session(Target=self.instance_id, Parameters=ssm_parameters)
@@ -391,12 +387,15 @@ class Connection(ConnectionBase):
 
         session = self._session
 
-        mark_begin = "".join([random.choice(string.ascii_letters) for i in xrange(self.MARK_LENGTH)])
-        if self.is_windows:
-            mark_start = mark_begin + " $LASTEXITCODE"
-        else:
-            mark_start = mark_begin
-        mark_end = "".join([random.choice(string.ascii_letters) for i in xrange(self.MARK_LENGTH)])
+        mark_begin = "".join(
+            [random.choice(string.ascii_letters) for _ in xrange(self.MARK_LENGTH)]
+        )
+
+        mark_start = f"{mark_begin} $LASTEXITCODE" if self.is_windows else mark_begin
+        mark_end = "".join(
+            [random.choice(string.ascii_letters) for _ in xrange(self.MARK_LENGTH)]
+        )
+
 
         # Wrap command in markers accordingly for the shell used
         cmd = self._wrap_command(cmd, sudoable, mark_start, mark_end)
@@ -416,8 +415,10 @@ class Connection(ConnectionBase):
             if remaining < 1:
                 self._timeout = True
                 display.vvvv(u"EXEC timeout stdout: {0}".format(to_text(stdout)), host=self.host)
-                raise AnsibleConnectionFailure("SSM exec_command timeout on host: %s"
-                                               % self.instance_id)
+                raise AnsibleConnectionFailure(
+                    f"SSM exec_command timeout on host: {self.instance_id}"
+                )
+
             if self._poll_stdout.poll(1000):
                 line = self._filter_ansi(self._stdout.readline())
                 display.vvvv(u"EXEC stdout line: {0}".format(to_text(line)), host=self.host)
@@ -460,11 +461,20 @@ class Connection(ConnectionBase):
         if self.is_windows:
             if not cmd.startswith(" ".join(_common_args) + " -EncodedCommand"):
                 cmd = self._shell._encode_script(cmd, preserve_rc=True)
-            cmd = cmd + "; echo " + mark_start + "\necho " + mark_end + "\n"
+            cmd = f"{cmd}; echo {mark_start}" + "\necho " + mark_end + "\n"
         else:
             if sudoable:
-                cmd = "sudo " + cmd
-            cmd = "echo " + mark_start + "\n" + cmd + "\necho $'\\n'$?\n" + "echo " + mark_end + "\n"
+                cmd = f"sudo {cmd}"
+            cmd = (
+                f"echo {mark_start}"
+                + "\n"
+                + cmd
+                + "\necho $'\\n'$?\n"
+                + "echo "
+                + mark_end
+                + "\n"
+            )
+
 
         display.vvvv(u"_wrap_command: '{0}'".format(to_text(cmd)), host=self.host)
         return cmd
@@ -476,10 +486,7 @@ class Connection(ConnectionBase):
             # Value of $LASTEXITCODE will be the line after the mark
             trailer = stdout[stdout.rfind(mark_begin):]
             last_exit_code = trailer.splitlines()[1]
-            if last_exit_code.isdigit:
-                returncode = int(last_exit_code)
-            else:
-                returncode = -1
+            returncode = int(last_exit_code) if last_exit_code.isdigit else -1
             # output to keep will be before the mark
             stdout = stdout[:stdout.rfind(mark_begin)]
 
@@ -487,16 +494,16 @@ class Connection(ConnectionBase):
             if stdout.startswith('{'):
                 stdout = stdout.replace('\n', '')
 
-            return (returncode, stdout)
         else:
             # Get command return code
             returncode = int(stdout.splitlines()[-2])
 
             # Throw away ending lines
-            for x in range(0, 3):
+            for _ in range(3):
                 stdout = stdout[:stdout.rfind('\n')]
 
-            return (returncode, stdout)
+
+        return (returncode, stdout)
 
     def _filter_ansi(self, line):
         ''' remove any ANSI terminal control codes '''
@@ -522,14 +529,10 @@ class Connection(ConnectionBase):
         poll_stderr.register(subprocess.stderr, select.POLLIN)
         stderr = ''
 
-        while subprocess.poll() is None:
-            if poll_stderr.poll(1):
-                line = subprocess.stderr.readline()
-                display.vvvv(u"stderr line: {0}".format(to_text(line)), host=self.host)
-                stderr = stderr + line
-            else:
-                break
-
+        while subprocess.poll() is None and poll_stderr.poll(1):
+            line = subprocess.stderr.readline()
+            display.vvvv(u"stderr line: {0}".format(to_text(line)), host=self.host)
+            stderr = stderr + line
         return stderr
 
     def _get_url(self, client_method, bucket_name, out_path, http_method, profile_name, extra_args=None):
@@ -538,7 +541,7 @@ class Connection(ConnectionBase):
         client = self._get_boto_client('s3', region_name=region_name, profile_name=profile_name)
         params = {'Bucket': bucket_name, 'Key': out_path}
         if extra_args is not None:
-            params.update(extra_args)
+            params |= extra_args
         return client.generate_presigned_url(client_method, Params=params, ExpiresIn=3600, HttpMethod=http_method)
 
     def _get_boto_client(self, service, region_name=None, profile_name=None):
@@ -579,12 +582,12 @@ class Connection(ConnectionBase):
 
         path_unescaped = u"{0}/{1}".format(self.instance_id, out_path)
         s3_path = path_unescaped.replace('\\', '/')
-        bucket_url = 's3://%s/%s' % (self.get_option('bucket_name'), s3_path)
+        bucket_url = f"s3://{self.get_option('bucket_name')}/{s3_path}"
 
         profile_name = self.get_option('profile')
 
-        put_args = dict()
-        put_headers = dict()
+        put_args = {}
+        put_headers = {}
         if self.get_option('bucket_sse_mode'):
             put_args['ServerSideEncryption'] = self.get_option('bucket_sse_mode')
             put_headers['x-amz-server-side-encryption'] = self.get_option('bucket_sse_mode')

@@ -196,7 +196,7 @@ class AnsibleEc2TgwInfo(object):
         transit_gateway_ids = self._module.params['transit_gateway_ids']
 
         # init empty list for return vars
-        transit_gateway_info = list()
+        transit_gateway_info = []
 
         # Get the basic transit gateway info
         try:
@@ -226,12 +226,10 @@ def setup_module_object():
         filters=dict(type='dict', default={})
     )
 
-    module = AnsibleAWSModule(
+    return AnsibleAWSModule(
         argument_spec=argument_spec,
         supports_check_mode=True,
     )
-
-    return module
 
 
 def main():

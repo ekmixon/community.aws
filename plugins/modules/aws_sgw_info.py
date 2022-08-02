@@ -215,11 +215,7 @@ class SGWInformationManager(object):
                 }
             ).build_full_result()
 
-            gateways = []
-            for gw in response["Gateways"]:
-                gateways.append(camel_dict_to_snake_dict(gw))
-
-            return gateways
+            return [camel_dict_to_snake_dict(gw) for gw in response["Gateways"]]
 
         except (BotoCoreError, ClientError) as e:
             self.module.fail_json_aws(e, msg="Couldn't list storage gateways")

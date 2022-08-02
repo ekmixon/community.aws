@@ -261,9 +261,8 @@ def main():
         else:
             update_resource(client, module, params, result)
 
-    if state == 'absent':
-        if existing_rule:
-            delete_resource(client, module, params, result)
+    if state == 'absent' and existing_rule:
+        delete_resource(client, module, params, result)
 
     module.exit_json(**result)
 

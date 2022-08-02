@@ -318,9 +318,9 @@ def find_address(ec2, module, public_ip, device_id, is_instance=True):
         else:
             filters.append({'Name': 'network-interface-id', "Values": [device_id]})
 
-    if len(filters) > 0:
+    if filters:
         kwargs["Filters"] = filters
-    elif len(filters) == 0 and public_ip is None:
+    elif public_ip is None:
         return None
 
     try:
@@ -335,21 +335,23 @@ def find_address(ec2, module, public_ip, device_id, is_instance=True):
     if len(addresses) == 1:
         return addresses[0]
     elif len(addresses) > 1:
-        msg = "Found more than one address using args {0}".format(kwargs)
-        msg += "Addresses found: {0}".format(addresses)
+        msg = "Found more than one address using args {0}".format(
+            kwargs
+        ) + "Addresses found: {0}".format(addresses)
+
         module.fail_json_aws(botocore.exceptions.ClientError, msg=msg)
 
 
 def address_is_associated_with_device(ec2, module, address, device_id, is_instance=True):
     """ Check if the elastic IP is currently associated with the device """
-    address = find_address(ec2, module, address["PublicIp"], device_id, is_instance)
-    if address:
+    if address := find_address(
+        ec2, module, address["PublicIp"], device_id, is_instance
+    ):
         if is_instance:
             if "InstanceId" in address and address["InstanceId"] == device_id:
                 return address
-        else:
-            if "NetworkInterfaceId" in address and address["NetworkInterfaceId"] == device_id:
-                return address
+        elif "NetworkInterfaceId" in address and address["NetworkInterfaceId"] == device_id:
+            return address
     return False
 
 
@@ -359,9 +361,7 @@ def allocate_address(ec2, module, domain, reuse_existing_ip_allowed, check_mode,
         domain = 'standard'
 
     if reuse_existing_ip_allowed:
-        filters = []
-        filters.append({'Name': 'domain', "Values": [domain]})
-
+        filters = [{'Name': 'domain', "Values": [domain]}]
         if tag_dict is not None:
             filters += ansible_dict_to_boto3_filter_list(tag_dict)
 
@@ -452,10 +452,14 @@ def ensure_present(ec2, module, domain, address, private_ip_address, device_id,
         # Allocate an IP for instance since no public_ip was provided
         if is_instance:
             instance = find_device(ec2, module, device_id)
-            if reuse_existing_ip_allowed:
-                if instance['VpcId'] and len(instance['VpcId']) > 0 and domain is None:
-                    msg = "You must set 'in_vpc' to true to associate an instance with an existing ip in a vpc"
-                    module.fail_json_aws(botocore.exceptions.ClientError, msg=msg)
+            if (
+                reuse_existing_ip_allowed
+                and instance['VpcId']
+                and len(instance['VpcId']) > 0
+                and domain is None
+            ):
+                msg = "You must set 'in_vpc' to true to associate an instance with an existing ip in a vpc"
+                module.fail_json_aws(botocore.exceptions.ClientError, msg=msg)
 
             # Associate address object (provided or allocated) with instance
             assoc_result = associate_ip_and_device(
@@ -523,37 +527,53 @@ def generate_tag_dict(module, tag_name, tag_value):
             tag_name = tag_name.strip('tag:')
         return {'tag-key': tag_name}
 
-    elif tag_name and tag_value:
+    elif tag_name:
         if not tag_name.startswith('tag:'):
-            tag_name = 'tag:' + tag_name
+            tag_name = f'tag:{tag_name}'
         return {tag_name: tag_value}
 
-    elif tag_value and not tag_name:
+    elif tag_value:
         module.fail_json(msg="parameters are required together: ('tag_name', 'tag_value')")
 
 
 def main():
     argument_spec = dict(
-        device_id=dict(required=False, aliases=['instance_id'],
-                       deprecated_aliases=[dict(name='instance_id',
-                                           date='2022-12-01',
-                                           collection_name='community.aws')]),
+        device_id=dict(
+            required=False,
+            aliases=['instance_id'],
+            deprecated_aliases=[
+                dict(
+                    name='instance_id',
+                    date='2022-12-01',
+                    collection_name='community.aws',
+                )
+            ],
+        ),
         public_ip=dict(required=False, aliases=['ip']),
-        state=dict(required=False, default='present',
-                   choices=['present', 'absent']),
+        state=dict(
+            required=False, default='present', choices=['present', 'absent']
+        ),
         in_vpc=dict(required=False, type='bool', default=False),
-        reuse_existing_ip_allowed=dict(required=False, type='bool',
-                                       default=False),
-        release_on_disassociation=dict(required=False, type='bool', default=False),
+        reuse_existing_ip_allowed=dict(
+            required=False, type='bool', default=False
+        ),
+        release_on_disassociation=dict(
+            required=False, type='bool', default=False
+        ),
         allow_reassociation=dict(type='bool', default=False),
-        wait_timeout=dict(type='int', removed_at_date='2022-06-01', removed_from_collection='community.aws'),
-        private_ip_address=dict(),
+        wait_timeout=dict(
+            type='int',
+            removed_at_date='2022-06-01',
+            removed_from_collection='community.aws',
+        ),
+        private_ip_address={},
         tags=dict(required=False, type='dict'),
         purge_tags=dict(required=False, type='bool', default=True),
-        tag_name=dict(),
-        tag_value=dict(),
-        public_ipv4_pool=dict()
+        tag_name={},
+        tag_value={},
+        public_ipv4_pool={},
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,
@@ -584,10 +604,10 @@ def main():
     if instance_id:
         is_instance = True
         device_id = instance_id
-    else:
-        if device_id and device_id.startswith('i-'):
+    elif device_id:
+        if device_id.startswith('i-'):
             is_instance = True
-        elif device_id:
+        else:
             if device_id.startswith('eni-') and not in_vpc:
                 module.fail_json(msg="If you are specifying an ENI, in_vpc must be true")
             is_instance = False
@@ -611,60 +631,58 @@ def main():
                 if 'allocation_id' not in result:
                     # Don't check tags on check_mode here - no EIP to pass through
                     module.exit_json(**result)
+            elif address:
+                result = {
+                    'changed': False,
+                    'public_ip': address['PublicIp'],
+                    'allocation_id': address['AllocationId']
+                }
             else:
+                address, changed = allocate_address(
+                    ec2, module, domain, reuse_existing_ip_allowed,
+                    module.check_mode, tag_dict, public_ipv4_pool
+                )
                 if address:
                     result = {
-                        'changed': False,
+                        'changed': changed,
                         'public_ip': address['PublicIp'],
                         'allocation_id': address['AllocationId']
                     }
                 else:
-                    address, changed = allocate_address(
-                        ec2, module, domain, reuse_existing_ip_allowed,
-                        module.check_mode, tag_dict, public_ipv4_pool
-                    )
-                    if address:
-                        result = {
-                            'changed': changed,
-                            'public_ip': address['PublicIp'],
-                            'allocation_id': address['AllocationId']
-                        }
-                    else:
-                        # Don't check tags on check_mode here - no EIP to pass through
-                        result = {
-                            'changed': changed
-                        }
-                        module.exit_json(**result)
+                    # Don't check tags on check_mode here - no EIP to pass through
+                    result = {
+                        'changed': changed
+                    }
+                    module.exit_json(**result)
 
             result['changed'] |= ensure_ec2_tags(
                 ec2, module, result['allocation_id'],
                 resource_type='elastic-ip', tags=tags, purge_tags=purge_tags)
-        else:
-            if device_id:
-                disassociated = ensure_absent(
-                    ec2, module, address, device_id, module.check_mode, is_instance=is_instance
-                )
+        elif device_id:
+            disassociated = ensure_absent(
+                ec2, module, address, device_id, module.check_mode, is_instance=is_instance
+            )
 
-                if release_on_disassociation and disassociated['changed']:
-                    released = release_address(ec2, module, address, module.check_mode)
-                    result = {
-                        'changed': True,
-                        'disassociated': disassociated['changed'],
-                        'released': released['changed']
-                    }
-                else:
-                    result = {
-                        'changed': disassociated['changed'],
-                        'disassociated': disassociated['changed'],
-                        'released': False
-                    }
-            else:
+            if release_on_disassociation and disassociated['changed']:
                 released = release_address(ec2, module, address, module.check_mode)
                 result = {
-                    'changed': released['changed'],
-                    'disassociated': False,
+                    'changed': True,
+                    'disassociated': disassociated['changed'],
                     'released': released['changed']
                 }
+            else:
+                result = {
+                    'changed': disassociated['changed'],
+                    'disassociated': disassociated['changed'],
+                    'released': False
+                }
+        else:
+            released = release_address(ec2, module, address, module.check_mode)
+            result = {
+                'changed': released['changed'],
+                'disassociated': False,
+                'released': released['changed']
+            }
 
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(str(e))

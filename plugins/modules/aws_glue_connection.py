@@ -203,11 +203,12 @@ def _compare_glue_connection_params(user_params, current_params):
     if 'Description' not in current_params:
         current_params['Description'] = ""
     if 'MatchCriteria' not in current_params:
-        current_params['MatchCriteria'] = list()
+        current_params['MatchCriteria'] = []
     if 'PhysicalConnectionRequirements' not in current_params:
-        current_params['PhysicalConnectionRequirements'] = dict()
-        current_params['PhysicalConnectionRequirements']['SecurityGroupIdList'] = []
-        current_params['PhysicalConnectionRequirements']['SubnetId'] = ""
+        current_params['PhysicalConnectionRequirements'] = {
+            'SecurityGroupIdList': [],
+            'SubnetId': "",
+        }
 
     if 'ConnectionProperties' in user_params['ConnectionInput'] and user_params['ConnectionInput']['ConnectionProperties'] \
             != current_params['ConnectionProperties']:
@@ -248,7 +249,9 @@ def _await_glue_connection(connection, module):
             return glue_connection
         time.sleep(check_interval)
 
-    module.fail_json(msg='Timeout waiting for Glue connection %s' % module.params.get('name'))
+    module.fail_json(
+        msg=f"Timeout waiting for Glue connection {module.params.get('name')}"
+    )
 
 
 def create_or_update_glue_connection(connection, connection_ec2, module, glue_connection):
@@ -262,8 +265,7 @@ def create_or_update_glue_connection(connection, connection_ec2, module, glue_co
     """
     changed = False
 
-    params = dict()
-    params['ConnectionInput'] = dict()
+    params = {'ConnectionInput': {}}
     params['ConnectionInput']['Name'] = module.params.get("name")
     params['ConnectionInput']['ConnectionType'] = module.params.get("connection_type")
     params['ConnectionInput']['ConnectionProperties'] = module.params.get("connection_properties")
@@ -274,7 +276,7 @@ def create_or_update_glue_connection(connection, connection_ec2, module, glue_co
     if module.params.get("match_criteria") is not None:
         params['ConnectionInput']['MatchCriteria'] = module.params.get("match_criteria")
     if module.params.get("security_groups") is not None or module.params.get("subnet_id") is not None:
-        params['ConnectionInput']['PhysicalConnectionRequirements'] = dict()
+        params['ConnectionInput']['PhysicalConnectionRequirements'] = {}
     if module.params.get("security_groups") is not None:
         # Get security group IDs from names
         security_group_ids = get_ec2_security_group_ids_from_names(module.params.get('security_groups'), connection_ec2, boto3=True)

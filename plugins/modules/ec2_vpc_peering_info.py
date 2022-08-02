@@ -213,8 +213,12 @@ from ansible_collections.amazon.aws.plugins.module_utils.ec2 import camel_dict_t
 
 
 def get_vpc_peers(client, module):
-    params = dict()
-    params['Filters'] = ansible_dict_to_boto3_filter_list(module.params.get('filters'))
+    params = {
+        'Filters': ansible_dict_to_boto3_filter_list(
+            module.params.get('filters')
+        )
+    }
+
     if module.params.get('peer_connection_ids'):
         params['VpcPeeringConnectionIds'] = module.params.get('peer_connection_ids')
     try:
@@ -228,9 +232,10 @@ def get_vpc_peers(client, module):
 
 def main():
     argument_spec = dict(
-        filters=dict(default=dict(), type='dict'),
+        filters=dict(default={}, type='dict'),
         peer_connection_ids=dict(default=None, type='list', elements='str'),
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               supports_check_mode=True,)

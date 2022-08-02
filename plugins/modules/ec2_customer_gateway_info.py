@@ -95,9 +95,13 @@ def date_handler(obj):
 
 
 def list_customer_gateways(connection, module):
-    params = dict()
+    params = {
+        'Filters': ansible_dict_to_boto3_filter_list(
+            module.params.get('filters')
+        )
+    }
 
-    params['Filters'] = ansible_dict_to_boto3_filter_list(module.params.get('filters'))
+
     params['CustomerGatewayIds'] = module.params.get('customer_gateway_ids')
 
     try:
@@ -108,8 +112,7 @@ def list_customer_gateways(connection, module):
     if snaked_customer_gateways:
         for customer_gateway in snaked_customer_gateways:
             customer_gateway['tags'] = boto3_tag_list_to_ansible_dict(customer_gateway.get('tags', []))
-            customer_gateway_name = customer_gateway['tags'].get('Name')
-            if customer_gateway_name:
+            if customer_gateway_name := customer_gateway['tags'].get('Name'):
                 customer_gateway['customer_gateway_name'] = customer_gateway_name
     module.exit_json(changed=False, customer_gateways=snaked_customer_gateways)
 

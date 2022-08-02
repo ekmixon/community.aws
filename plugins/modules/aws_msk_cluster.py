@@ -398,7 +398,7 @@ def prepare_create_options(module):
                 "CertificateAuthorityArnList": module.params["authentication"]["tls_ca_arn"]
             }
 
-    c_params.update(prepare_enhanced_monitoring_options(module))
+    c_params |= prepare_enhanced_monitoring_options(module)
     c_params.update(prepare_open_monitoring_options(module))
     c_params.update(prepare_logging_options(module))
 
@@ -406,25 +406,29 @@ def prepare_create_options(module):
 
 
 def prepare_enhanced_monitoring_options(module):
-    m_params = {}
-    m_params["EnhancedMonitoring"] = module.params["enhanced_monitoring"] or "DEFAULT"
-    return m_params
+    return {
+        "EnhancedMonitoring": module.params["enhanced_monitoring"] or "DEFAULT"
+    }
 
 
 def prepare_open_monitoring_options(module):
-    m_params = {}
     open_monitoring = module.params["open_monitoring"] or {}
-    m_params["OpenMonitoring"] = {
-        "Prometheus": {
-            "JmxExporter": {
-                "EnabledInBroker": open_monitoring.get("jmx_exporter", False)
-            },
-            "NodeExporter": {
-                "EnabledInBroker": open_monitoring.get("node_exporter", False)
+    return {
+        "OpenMonitoring": {
+            "Prometheus": {
+                "JmxExporter": {
+                    "EnabledInBroker": open_monitoring.get(
+                        "jmx_exporter", False
+                    )
+                },
+                "NodeExporter": {
+                    "EnabledInBroker": open_monitoring.get(
+                        "node_exporter", False
+                    )
+                },
             }
         }
     }
-    return m_params
 
 
 def prepare_logging_options(module):
@@ -473,30 +477,7 @@ def create_or_update_cluster(client, module):
     changed = False
     response = {}
 
-    cluster = find_cluster_by_name(client, module, module.params["name"])
-
-    if not cluster:
-
-        changed = True
-
-        if module.check_mode:
-            return True, {}
-
-        create_params = prepare_create_options(module)
-
-        try:
-            response = client.create_cluster(aws_retry=True, **create_params)
-        except (
-            botocore.exceptions.BotoCoreError,
-            botocore.exceptions.ClientError,
-        ) as e:
-            module.fail_json_aws(e, "Failed to create kafka cluster")
-
-        if module.params.get("wait"):
-            wait_for_cluster_state(client, module, arn=response["ClusterArn"], state="ACTIVE")
-
-    else:
-
+    if cluster := find_cluster_by_name(client, module, module.params["name"]):
         response["ClusterArn"] = cluster["ClusterArn"]
         response["changes"] = {}
 
@@ -574,12 +555,16 @@ def create_or_update_cluster(client, module):
 
         for method, options in msk_cluster_changes.items():
 
-            if 'botocore_version' in options:
-                if not module.botocore_at_least(options["botocore_version"]):
-                    continue
+            if 'botocore_version' in options and not module.botocore_at_least(
+                options["botocore_version"]
+            ):
+                continue
 
             try:
-                update_method = getattr(client, options.get("update_method", "update_" + method))
+                update_method = getattr(
+                    client, options.get("update_method", f"update_{method}")
+                )
+
             except AttributeError as e:
                 module.fail_json_aws(e, "There is no update method 'update_{0}'".format(method))
 
@@ -618,6 +603,25 @@ def create_or_update_cluster(client, module):
                 if module.params["wait"]:
                     wait_for_cluster_state(client, module, arn=cluster["ClusterArn"], state="ACTIVE")
 
+    else:
+        changed = True
+
+        if module.check_mode:
+            return True, {}
+
+        create_params = prepare_create_options(module)
+
+        try:
+            response = client.create_cluster(aws_retry=True, **create_params)
+        except (
+            botocore.exceptions.BotoCoreError,
+            botocore.exceptions.ClientError,
+        ) as e:
+            module.fail_json_aws(e, "Failed to create kafka cluster")
+
+        if module.params.get("wait"):
+            wait_for_cluster_state(client, module, arn=response["ClusterArn"], state="ACTIVE")
+
     changed |= update_cluster_tags(client, module, response["ClusterArn"])
 
     return changed, response
@@ -645,8 +649,7 @@ def update_cluster_tags(client, module, arn):
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg="Unable to set tags for cluster '{0}'".format(arn))
 
-    changed = bool(tags_to_add) or bool(tags_to_remove)
-    return changed
+    return bool(tags_to_add) or bool(tags_to_remove)
 
 
 def delete_cluster(client, module):
@@ -654,11 +657,7 @@ def delete_cluster(client, module):
     cluster = find_cluster_by_name(client, module, module.params["name"])
 
     if module.check_mode:
-        if cluster:
-            return True, cluster
-        else:
-            return False, {}
-
+        return (True, cluster) if cluster else (False, {})
     if not cluster:
         return False, {}
 
@@ -786,7 +785,7 @@ def main():
             module.fail_json(
                 msg="At least two client subnets should be provided"
             )
-        if int(module.params["nodes"]) % int(len(module.params["subnets"])) != 0:
+        if int(module.params["nodes"]) % len(module.params["subnets"]) != 0:
             module.fail_json(
                 msg="The number of broker nodes must be a multiple of availability zones in the subnets parameter"
             )

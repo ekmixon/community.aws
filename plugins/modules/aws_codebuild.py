@@ -299,12 +299,25 @@ def create_or_update_project(client, params, module):
     resp = {}
     name = params['name']
     # clean up params
-    formatted_params = snake_dict_to_camel_dict(dict((k, v) for k, v in params.items() if v is not None))
+    formatted_params = snake_dict_to_camel_dict(
+        {k: v for k, v in params.items() if v is not None}
+    )
+
     permitted_create_params = get_boto3_client_method_parameters(client, 'create_project')
     permitted_update_params = get_boto3_client_method_parameters(client, 'update_project')
 
-    formatted_create_params = dict((k, v) for k, v in formatted_params.items() if k in permitted_create_params)
-    formatted_update_params = dict((k, v) for k, v in formatted_params.items() if k in permitted_update_params)
+    formatted_create_params = {
+        k: v
+        for k, v in formatted_params.items()
+        if k in permitted_create_params
+    }
+
+    formatted_update_params = {
+        k: v
+        for k, v in formatted_params.items()
+        if k in permitted_update_params
+    }
+
 
     # Check if project with that name already exists and if so update existing:
     found = describe_project(client=client, name=name, module=module)
@@ -337,18 +350,14 @@ def update_project(client, params, module):
     name = params['name']
 
     try:
-        resp = client.update_project(**params)
-        return resp
+        return client.update_project(**params)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable to update CodeBuild project")
 
 
 def delete_project(client, name, module):
     found = describe_project(client=client, name=name, module=module)
-    changed = False
-    if 'name' in found:
-        # Mark as changed when a project with that name existed before calling delete
-        changed = True
+    changed = 'name' in found
     try:
         resp = client.delete_project(name=name)
         return resp, changed
@@ -370,18 +379,19 @@ def describe_project(client, name, module):
 def main():
     argument_spec = dict(
         name=dict(required=True),
-        description=dict(),
+        description={},
         source=dict(required=True, type='dict'),
         artifacts=dict(required=True, type='dict'),
         cache=dict(type='dict'),
         environment=dict(type='dict'),
-        service_role=dict(),
+        service_role={},
         timeout_in_minutes=dict(type='int', default=60),
         encryption_key=dict(no_log=False),
         tags=dict(type='list', elements='dict'),
         vpc_config=dict(type='dict'),
-        state=dict(choices=['present', 'absent'], default='present')
+        state=dict(choices=['present', 'absent'], default='present'),
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec)
     client_conn = module.client('codebuild')

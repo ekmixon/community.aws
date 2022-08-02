@@ -288,7 +288,7 @@ def run_with_timeout(timeout, func, *func_args, **func_kwargs):
 
     """
 
-    for count in range(timeout // 10):
+    for _ in range(timeout // 10):
         if func(*func_args, **func_kwargs):
             return True
         else:
@@ -308,10 +308,7 @@ def check_dp_exists(client, dp_id):
     """
     try:
         # pipeline_description raises DataPipelineNotFound
-        if pipeline_description(client, dp_id):
-            return True
-        else:
-            return False
+        return bool(pipeline_description(client, dp_id))
     except DataPipelineNotFound:
         return False
 
@@ -327,10 +324,7 @@ def check_dp_status(client, dp_id, status):
     """
     if not isinstance(status, list):
         raise AssertionError()
-    if pipeline_field(client, dp_id, field="@pipelineState") in status:
-        return True
-    else:
-        return False
+    return pipeline_field(client, dp_id, field="@pipelineState") in status
 
 
 def pipeline_status_timeout(client, dp_id, status, timeout):
@@ -366,10 +360,10 @@ def activate_pipeline(client, module):
             pipeline_status_timeout(client, dp_id, status=DP_ACTIVE_STATES,
                                     timeout=timeout)
         except TimeOutException:
-            if pipeline_field(client, dp_id, field="@pipelineState") == "FINISHED":
-                # activated but completed more rapidly than it was checked
-                pass
-            else:
+            if (
+                pipeline_field(client, dp_id, field="@pipelineState")
+                != "FINISHED"
+            ):
                 module.fail_json(msg=('Data Pipeline {0} failed to activate '
                                       'within timeout {1} seconds').format(dp_name, timeout))
         changed = True
@@ -447,8 +441,7 @@ def build_unique_id(module):
     # removing objects from the unique id so we can update objects or populate the pipeline after creation without needing to make a new pipeline
     [data.pop(each, None) for each in ('objects', 'timeout')]
     json_data = json.dumps(data, sort_keys=True).encode("utf-8")
-    hashed_data = hashlib.md5(json_data).hexdigest()
-    return hashed_data
+    return hashlib.md5(json_data).hexdigest()
 
 
 def format_tags(tags):

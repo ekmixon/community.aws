@@ -175,13 +175,8 @@ def dict_compare(d1, d2):
     intersect_keys = d1_keys.intersection(d2_keys)
     added = d1_keys - d2_keys
     removed = d2_keys - d1_keys
-    modified = False
-    for key in d1:
-        if d1[key] != d2[key]:
-            modified = True
-            break
-
-    same = set(o for o in intersect_keys if d1[o] == d2[o])
+    modified = any(d1[key] != d2[key] for key in d1)
+    same = {o for o in intersect_keys if d1[o] == d2[o]}
     return added, removed, modified, same
 
 
@@ -210,9 +205,6 @@ def delete_lifecycle_hook(connection, module):
                 changed = True
             except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
                 module.fail_json_aws(e, msg="Failed to delete LifecycleHook")
-        else:
-            pass
-
     return(changed)
 
 

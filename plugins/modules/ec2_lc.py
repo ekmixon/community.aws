@@ -463,15 +463,21 @@ from ansible_collections.amazon.aws.plugins.module_utils.ec2 import get_ec2_secu
 
 
 def create_block_device_meta(module, volume):
-    if 'snapshot' not in volume and 'ephemeral' not in volume and 'no_device' not in volume:
-        if 'volume_size' not in volume:
-            module.fail_json(msg='Size must be specified when creating a new volume or modifying the root volume')
-    if 'snapshot' in volume:
-        if volume.get('volume_type') == 'io1' and 'iops' not in volume:
-            module.fail_json(msg='io1 volumes must have an iops value set')
-    if 'ephemeral' in volume:
-        if 'snapshot' in volume:
-            module.fail_json(msg='Cannot set both ephemeral and snapshot')
+    if (
+        'snapshot' not in volume
+        and 'ephemeral' not in volume
+        and 'no_device' not in volume
+        and 'volume_size' not in volume
+    ):
+        module.fail_json(msg='Size must be specified when creating a new volume or modifying the root volume')
+    if (
+        'snapshot' in volume
+        and volume.get('volume_type') == 'io1'
+        and 'iops' not in volume
+    ):
+        module.fail_json(msg='io1 volumes must have an iops value set')
+    if 'ephemeral' in volume and 'snapshot' in volume:
+        module.fail_json(msg='Cannot set both ephemeral and snapshot')
 
     return_object = {}
 
@@ -540,7 +546,14 @@ def create_launch_config(connection, module):
 
     convert_list = ['image_id', 'instance_type', 'instance_type', 'instance_id', 'placement_tenancy', 'key_name', 'kernel_id', 'ramdisk_id', 'spot_price']
 
-    launch_config = (snake_dict_to_camel_dict(dict((k.capitalize(), str(v)) for k, v in module.params.items() if v is not None and k in convert_list)))
+    launch_config = snake_dict_to_camel_dict(
+        {
+            k.capitalize(): str(v)
+            for k, v in module.params.items()
+            if v is not None and k in convert_list
+        }
+    )
+
 
     if user_data_path:
         try:
@@ -604,8 +617,18 @@ def create_launch_config(connection, module):
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg="Failed to create launch configuration")
 
-    result = (dict((k, v) for k, v in launch_config.items()
-                   if k not in ['Connection', 'CreatedTime', 'InstanceMonitoring', 'BlockDeviceMappings']))
+    result = {
+        k: v
+        for k, v in launch_config.items()
+        if k
+        not in [
+            'Connection',
+            'CreatedTime',
+            'InstanceMonitoring',
+            'BlockDeviceMappings',
+        ]
+    }
+
 
     result['CreatedTime'] = to_text(launch_config.get('CreatedTime'))
 
@@ -641,8 +664,9 @@ def create_launch_config(connection, module):
 def delete_launch_config(connection, module):
     try:
         name = module.params.get('name')
-        launch_configs = connection.describe_launch_configurations(LaunchConfigurationNames=[name]).get('LaunchConfigurations')
-        if launch_configs:
+        if launch_configs := connection.describe_launch_configurations(
+            LaunchConfigurationNames=[name]
+        ).get('LaunchConfigurations'):
             connection.delete_launch_configuration(LaunchConfigurationName=launch_configs[0].get('LaunchConfigurationName'))
             module.exit_json(changed=True)
         else:
@@ -654,28 +678,33 @@ def delete_launch_config(connection, module):
 def main():
     argument_spec = dict(
         name=dict(required=True),
-        image_id=dict(),
-        instance_id=dict(),
-        key_name=dict(),
+        image_id={},
+        instance_id={},
+        key_name={},
         security_groups=dict(default=[], type='list', elements='str'),
-        user_data=dict(),
+        user_data={},
         user_data_path=dict(type='path'),
-        kernel_id=dict(),
+        kernel_id={},
         volumes=dict(type='list', elements='dict'),
-        instance_type=dict(),
+        instance_type={},
         state=dict(default='present', choices=['present', 'absent']),
         spot_price=dict(type='float'),
-        ramdisk_id=dict(),
-        instance_profile_name=dict(),
+        ramdisk_id={},
+        instance_profile_name={},
         ebs_optimized=dict(default=False, type='bool'),
-        associate_public_ip_address=dict(type='bool', removed_at_date='2022-06-01', removed_from_collection='community.aws'),
+        associate_public_ip_address=dict(
+            type='bool',
+            removed_at_date='2022-06-01',
+            removed_from_collection='community.aws',
+        ),
         instance_monitoring=dict(default=False, type='bool'),
         assign_public_ip=dict(type='bool'),
         classic_link_vpc_security_groups=dict(type='list', elements='str'),
-        classic_link_vpc_id=dict(),
-        vpc_id=dict(),
-        placement_tenancy=dict(choices=['default', 'dedicated'])
+        classic_link_vpc_id={},
+        vpc_id={},
+        placement_tenancy=dict(choices=['default', 'dedicated']),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

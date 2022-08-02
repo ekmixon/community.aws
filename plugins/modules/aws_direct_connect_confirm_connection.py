@@ -93,13 +93,19 @@ def find_connection_id(client, connection_id=None, connection_name=None):
                                  exception=e)
 
     match = []
-    if len(response.get('connections', [])) == 1 and connection_id:
-        if response['connections'][0]['connectionState'] != 'deleted':
-            match.append(response['connections'][0]['connectionId'])
+    if (
+        len(response.get('connections', [])) == 1
+        and connection_id
+        and response['connections'][0]['connectionState'] != 'deleted'
+    ):
+        match.append(response['connections'][0]['connectionId'])
 
-    for conn in response.get('connections', []):
-        if connection_name == conn['connectionName'] and conn['connectionState'] != 'deleted':
-            match.append(conn['connectionId'])
+    match.extend(
+        conn['connectionId']
+        for conn in response.get('connections', [])
+        if connection_name == conn['connectionName']
+        and conn['connectionState'] != 'deleted'
+    )
 
     if len(match) == 1:
         return match[0]
@@ -118,10 +124,7 @@ def get_connection_state(client, connection_id):
 
 
 def main():
-    argument_spec = dict(
-        connection_id=dict(),
-        name=dict()
-    )
+    argument_spec = dict(connection_id={}, name={})
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               mutually_exclusive=[['connection_id', 'name']],
                               required_one_of=[['connection_id', 'name']])

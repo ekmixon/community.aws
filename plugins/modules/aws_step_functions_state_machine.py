@@ -174,7 +174,11 @@ def update(state_machine_arn, sfn_client, module):
 def compare_tags(state_machine_arn, sfn_client, module):
     new_tags = module.params.get('tags')
     current_tags = sfn_client.list_tags_for_resource(resourceArn=state_machine_arn).get('tags')
-    return compare_aws_tags(boto3_tag_list_to_ansible_dict(current_tags), new_tags if new_tags else {}, module.params.get('purge_tags'))
+    return compare_aws_tags(
+        boto3_tag_list_to_ansible_dict(current_tags),
+        new_tags or {},
+        module.params.get('purge_tags'),
+    )
 
 
 def params_changed(state_machine_arn, sfn_client, module):

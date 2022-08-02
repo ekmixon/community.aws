@@ -386,19 +386,11 @@ def find_asgs(conn, module, name=None, tags=None):
 
     if name is not None:
         # if the user didn't specify a name
-        name_prog = re.compile(r'^' + name)
+        name_prog = re.compile(f'^{name}')
 
     for asg in asgs['AutoScalingGroups']:
-        if name:
-            matched_name = name_prog.search(asg['AutoScalingGroupName'])
-        else:
-            matched_name = True
-
-        if tags:
-            matched_tags = match_asg_tags(tags, asg)
-        else:
-            matched_tags = True
-
+        matched_name = name_prog.search(asg['AutoScalingGroupName']) if name else True
+        matched_tags = match_asg_tags(tags, asg) if tags else True
         if matched_name and matched_tags:
             asg = camel_dict_to_snake_dict(asg)
             # compatibility with ec2_asg module

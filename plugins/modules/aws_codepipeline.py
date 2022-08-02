@@ -211,24 +211,21 @@ def create_pipeline(client, name, role_arn, artifact_store, stages, version, mod
     if version:
         pipeline_dict['version'] = version
     try:
-        resp = client.create_pipeline(pipeline=pipeline_dict)
-        return resp
+        return client.create_pipeline(pipeline=pipeline_dict)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable create pipeline {0}".format(pipeline_dict['name']))
 
 
 def update_pipeline(client, pipeline_dict, module):
     try:
-        resp = client.update_pipeline(pipeline=pipeline_dict)
-        return resp
+        return client.update_pipeline(pipeline=pipeline_dict)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable update pipeline {0}".format(pipeline_dict['name']))
 
 
 def delete_pipeline(client, name, module):
     try:
-        resp = client.delete_pipeline(name=name)
-        return resp
+        return client.delete_pipeline(name=name)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable delete pipeline {0}".format(name))
 
@@ -237,11 +234,9 @@ def describe_pipeline(client, name, version, module):
     pipeline = {}
     try:
         if version is not None:
-            pipeline = client.get_pipeline(name=name, version=version)
-            return pipeline
+            return client.get_pipeline(name=name, version=version)
         else:
-            pipeline = client.get_pipeline(name=name)
-            return pipeline
+            return client.get_pipeline(name=name)
     except is_boto3_error_code('PipelineNotFoundException'):
         return pipeline
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except

@@ -176,7 +176,7 @@ class CloudWatchEventRule(object):
         except is_boto3_error_code('ResourceNotFoundException'):
             return {}
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-            self.module.fail_json_aws(e, msg="Could not describe rule %s" % self.name)
+            self.module.fail_json_aws(e, msg=f"Could not describe rule {self.name}")
         return self._snakify(rule_info)
 
     def put(self, enabled=True):
@@ -196,7 +196,7 @@ class CloudWatchEventRule(object):
         try:
             response = self.client.put_rule(**request)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Could not create/update rule %s" % self.name)
+            self.module.fail_json_aws(e, msg=f"Could not create/update rule {self.name}")
         self.changed = True
         return response
 
@@ -207,7 +207,7 @@ class CloudWatchEventRule(object):
         try:
             response = self.client.delete_rule(Name=self.name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Could not delete rule %s" % self.name)
+            self.module.fail_json_aws(e, msg=f"Could not delete rule {self.name}")
         self.changed = True
         return response
 
@@ -216,7 +216,7 @@ class CloudWatchEventRule(object):
         try:
             response = self.client.enable_rule(Name=self.name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Could not enable rule %s" % self.name)
+            self.module.fail_json_aws(e, msg=f"Could not enable rule {self.name}")
         self.changed = True
         return response
 
@@ -225,7 +225,7 @@ class CloudWatchEventRule(object):
         try:
             response = self.client.disable_rule(Name=self.name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Could not disable rule %s" % self.name)
+            self.module.fail_json_aws(e, msg=f"Could not disable rule {self.name}")
         self.changed = True
         return response
 
@@ -236,7 +236,7 @@ class CloudWatchEventRule(object):
         except is_boto3_error_code('ResourceNotFoundException'):
             return []
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-            self.module.fail_json_aws(e, msg="Could not find target for rule %s" % self.name)
+            self.module.fail_json_aws(e, msg=f"Could not find target for rule {self.name}")
         return self._snakify(targets)['targets']
 
     def put_targets(self, targets):
@@ -250,7 +250,10 @@ class CloudWatchEventRule(object):
         try:
             response = self.client.put_targets(**request)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Could not create/update rule targets for rule %s" % self.name)
+            self.module.fail_json_aws(
+                e, msg=f"Could not create/update rule targets for rule {self.name}"
+            )
+
         self.changed = True
         return response
 
@@ -265,7 +268,10 @@ class CloudWatchEventRule(object):
         try:
             response = self.client.remove_targets(**request)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Could not remove rule targets from rule %s" % self.name)
+            self.module.fail_json_aws(
+                e, msg=f"Could not remove rule targets from rule {self.name}"
+            )
+
         self.changed = True
         return response
 
@@ -312,8 +318,7 @@ class CloudWatchEventRuleManager(object):
 
     def ensure_present(self, enabled=True):
         """Ensures the rule and targets are present and synced"""
-        rule_description = self.rule.describe()
-        if rule_description:
+        if rule_description := self.rule.describe():
             # Rule exists so update rule, targets and state
             self._sync_rule(enabled)
             self._sync_targets()
@@ -328,11 +333,11 @@ class CloudWatchEventRuleManager(object):
 
     def ensure_absent(self):
         """Ensures the rule and targets are absent"""
-        rule_description = self.rule.describe()
-        if not rule_description:
+        if rule_description := self.rule.describe():
+            self.rule.delete()
+        else:
             # Rule doesn't exist so don't need to delete
             return
-        self.rule.delete()
 
     def fetch_aws_state(self):
         """Retrieves rule and target state from AWS"""
@@ -359,14 +364,10 @@ class CloudWatchEventRuleManager(object):
 
     def _sync_targets(self):
         """Syncs local targets with AWS"""
-        # Identify and remove extraneous targets on AWS
-        target_ids_to_remove = self._remote_target_ids_to_remove()
-        if target_ids_to_remove:
+        if target_ids_to_remove := self._remote_target_ids_to_remove():
             self.rule.remove_targets(target_ids_to_remove)
 
-        # Identify targets that need to be added or updated on AWS
-        targets_to_put = self._targets_to_put()
-        if targets_to_put:
+        if targets_to_put := self._targets_to_put():
             self.rule.put_targets(targets_to_put)
 
     def _sync_state(self, enabled=True):
@@ -408,23 +409,25 @@ class CloudWatchEventRuleManager(object):
 
     def _remote_state(self):
         """Returns the remote state from AWS"""
-        description = self.rule.describe()
-        if not description:
+        if description := self.rule.describe():
+            return description['state']
+        else:
             return
-        return description['state']
 
 
 def main():
     argument_spec = dict(
         name=dict(required=True),
-        schedule_expression=dict(),
-        event_pattern=dict(),
-        state=dict(choices=['present', 'disabled', 'absent'],
-                   default='present'),
-        description=dict(),
-        role_arn=dict(),
+        schedule_expression={},
+        event_pattern={},
+        state=dict(
+            choices=['present', 'disabled', 'absent'], default='present'
+        ),
+        description={},
+        role_arn={},
         targets=dict(type='list', default=[], elements='dict'),
     )
+
     module = AnsibleAWSModule(argument_spec=argument_spec)
 
     rule_data = dict(

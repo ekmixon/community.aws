@@ -57,7 +57,7 @@ def list_topics(client, module):
 def topic_arn_lookup(client, module, name):
     # topic names cannot have colons, so this captures the full topic name
     all_topics = list_topics(client, module)
-    lookup_topic = ':%s' % name
+    lookup_topic = f':{name}'
     for topic in all_topics:
         if topic.endswith(lookup_topic):
             return topic
@@ -68,23 +68,24 @@ def compare_delivery_policies(policy_a, policy_b):
     _policy_b = copy.deepcopy(policy_b)
     # AWS automatically injects disableSubscriptionOverrides if you set an
     # http policy
-    if 'http' in policy_a:
-        if 'disableSubscriptionOverrides' not in policy_a['http']:
-            _policy_a['http']['disableSubscriptionOverrides'] = False
-    if 'http' in policy_b:
-        if 'disableSubscriptionOverrides' not in policy_b['http']:
-            _policy_b['http']['disableSubscriptionOverrides'] = False
-    comparison = (_policy_a != _policy_b)
-    return comparison
+    if (
+        'http' in policy_a
+        and 'disableSubscriptionOverrides' not in policy_a['http']
+    ):
+        _policy_a['http']['disableSubscriptionOverrides'] = False
+    if (
+        'http' in policy_b
+        and 'disableSubscriptionOverrides' not in policy_b['http']
+    ):
+        _policy_b['http']['disableSubscriptionOverrides'] = False
+    return (_policy_a != _policy_b)
 
 
 def canonicalize_endpoint(protocol, endpoint):
     # AWS SNS expects phone numbers in
     # and canonicalizes to E.164 format
     # See <https://docs.aws.amazon.com/sns/latest/dg/sms_publish-to-phone.html>
-    if protocol == 'sms':
-        return re.sub('[^0-9+]*', '', endpoint)
-    return endpoint
+    return re.sub('[^0-9+]*', '', endpoint) if protocol == 'sms' else endpoint
 
 
 def get_info(connection, module, topic_arn):
@@ -118,7 +119,12 @@ def get_info(connection, module, topic_arn):
     }
     if state != 'absent':
         if topic_arn in list_topics(connection, module):
-            info.update(camel_dict_to_snake_dict(connection.get_topic_attributes(TopicArn=topic_arn)['Attributes']))
+            info |= camel_dict_to_snake_dict(
+                connection.get_topic_attributes(TopicArn=topic_arn)[
+                    'Attributes'
+                ]
+            )
+
             info['delivery_policy'] = info.pop('effective_delivery_policy')
         info['subscriptions'] = [camel_dict_to_snake_dict(sub) for sub in list_topic_subscriptions(connection, module, topic_arn)]
 

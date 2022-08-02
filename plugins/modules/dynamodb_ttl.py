@@ -86,19 +86,13 @@ def does_state_need_changing(attribute_name, desired_state, current_spec):
         return True
     if desired_state.lower() == 'disable' and current_spec.get('TimeToLiveStatus') not in ['DISABLING', 'DISABLED']:
         return True
-    if attribute_name != current_spec.get('AttributeName'):
-        return True
-
-    return False
+    return attribute_name != current_spec.get('AttributeName')
 
 
 def set_ttl_state(c, table_name, state, attribute_name):
     '''Set our specification. Returns the update_time_to_live specification dict,
        which is different than the describe_* call.'''
-    is_enabled = False
-    if state.lower() == 'enable':
-        is_enabled = True
-
+    is_enabled = state.lower() == 'enable'
     ret = c.update_time_to_live(
         TableName=table_name,
         TimeToLiveSpecification={

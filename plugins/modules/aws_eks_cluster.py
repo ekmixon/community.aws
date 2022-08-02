@@ -209,7 +209,10 @@ def ensure_present(client, module):
             params['version'] = module.params['version']
         cluster = client.create_cluster(**params)['cluster']
     except botocore.exceptions.EndpointConnectionError as e:
-        module.fail_json(msg="Region %s is not supported by EKS" % client.meta.region_name)
+        module.fail_json(
+            msg=f"Region {client.meta.region_name} is not supported by EKS"
+        )
+
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Couldn't create cluster %s" % name)
 
@@ -232,7 +235,10 @@ def ensure_absent(client, module):
         try:
             client.delete_cluster(name=module.params['name'])
         except botocore.exceptions.EndpointConnectionError as e:
-            module.fail_json(msg="Region %s is not supported by EKS" % client.meta.region_name)
+            module.fail_json(
+                msg=f"Region {client.meta.region_name} is not supported by EKS"
+            )
+
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Couldn't delete cluster %s" % name)
 
@@ -249,7 +255,10 @@ def get_cluster(client, module):
     except is_boto3_error_code('ResourceNotFoundException'):
         return None
     except botocore.exceptions.EndpointConnectionError as e:  # pylint: disable=duplicate-except
-        module.fail_json(msg="Region %s is not supported by EKS" % client.meta.region_name)
+        module.fail_json(
+            msg=f"Region {client.meta.region_name} is not supported by EKS"
+        )
+
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
         module.fail_json_aws(e, msg="Couldn't get cluster %s" % name)
 
@@ -266,14 +275,15 @@ def wait_until(client, module, waiter_name='cluster_active'):
 def main():
     argument_spec = dict(
         name=dict(required=True),
-        version=dict(),
-        role_arn=dict(),
+        version={},
+        role_arn={},
         subnets=dict(type='list', elements='str'),
         security_groups=dict(type='list', elements='str'),
         state=dict(choices=['absent', 'present'], default='present'),
         wait=dict(default=False, type='bool'),
-        wait_timeout=dict(default=1200, type='int')
+        wait_timeout=dict(default=1200, type='int'),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

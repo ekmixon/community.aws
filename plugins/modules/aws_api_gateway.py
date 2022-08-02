@@ -301,8 +301,7 @@ def ensure_api_in_correct_state(module, client, api_id, api_data):
 
     deploy_response = None
 
-    stage = module.params.get('stage')
-    if stage:
+    if stage := module.params.get('stage'):
         try:
             deploy_response = create_deployment(client, api_id, **module.params)
         except (botocore.exceptions.ClientError, botocore.exceptions.EndpointConnectionError) as e:
@@ -334,8 +333,8 @@ def configure_api(client, api_id, api_data=None, mode="overwrite"):
 def create_deployment(client, rest_api_id, **params):
     canary_settings = params.get('stage_canary_settings')
 
-    if canary_settings and len(canary_settings) > 0:
-        result = client.create_deployment(
+    return (
+        client.create_deployment(
             restApiId=rest_api_id,
             stageName=params.get('stage'),
             description=params.get('deploy_desc'),
@@ -343,20 +342,19 @@ def create_deployment(client, rest_api_id, **params):
             cacheClusterSize=params.get('cache_size'),
             variables=params.get('stage_variables'),
             canarySettings=canary_settings,
-            tracingEnabled=params.get('tracing_enabled')
+            tracingEnabled=params.get('tracing_enabled'),
         )
-    else:
-        result = client.create_deployment(
+        if canary_settings and len(canary_settings) > 0
+        else client.create_deployment(
             restApiId=rest_api_id,
             stageName=params.get('stage'),
             description=params.get('deploy_desc'),
             cacheClusterEnabled=params.get('cache_enabled'),
             cacheClusterSize=params.get('cache_size'),
             variables=params.get('stage_variables'),
-            tracingEnabled=params.get('tracing_enabled')
+            tracingEnabled=params.get('tracing_enabled'),
         )
-
-    return result
+    )
 
 
 if __name__ == '__main__':

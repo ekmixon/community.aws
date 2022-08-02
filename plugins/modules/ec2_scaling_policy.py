@@ -258,9 +258,11 @@ def create_scaling_policy(connection, module):
 
     # min_adjustment_step attribute is only relevant if the adjustment_type
     # is set to percentage change in capacity, so it is a special case
-    if module.params['adjustment_type'] == 'PercentChangeInCapacity':
-        if module.params['min_adjustment_step']:
-            params['MinAdjustmentMagnitude'] = module.params['min_adjustment_step']
+    if (
+        module.params['adjustment_type'] == 'PercentChangeInCapacity'
+        and module.params['min_adjustment_step']
+    ):
+        params['MinAdjustmentMagnitude'] = module.params['min_adjustment_step']
 
     if policy_type == 'SimpleScaling':
         # can't use required_if because it doesn't allow multiple criteria -
@@ -294,7 +296,10 @@ def create_scaling_policy(connection, module):
                                                 AutoScalingGroupName=asg_name,
                                                 PolicyNames=[policy_name])['ScalingPolicies']
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-        module.fail_json_aws(e, msg="Failed to obtain autoscaling policy %s" % policy_name)
+        module.fail_json_aws(
+            e, msg=f"Failed to obtain autoscaling policy {policy_name}"
+        )
+
 
     before = after = {}
     if not policies:
@@ -317,7 +322,10 @@ def create_scaling_policy(connection, module):
                                                     AutoScalingGroupName=asg_name,
                                                     PolicyNames=[policy_name])['ScalingPolicies']
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-            module.fail_json_aws(e, msg="Failed to obtain autoscaling policy %s" % policy_name)
+            module.fail_json_aws(
+                e, msg=f"Failed to obtain autoscaling policy {policy_name}"
+            )
+
 
     policy = camel_dict_to_snake_dict(policies[0])
     # Backward compatible return values
@@ -337,7 +345,10 @@ def delete_scaling_policy(connection, module):
     try:
         policy = connection.describe_policies(aws_retry=True, PolicyNames=[policy_name])
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-        module.fail_json_aws(e, msg="Failed to obtain autoscaling policy %s" % policy_name)
+        module.fail_json_aws(
+            e, msg=f"Failed to obtain autoscaling policy {policy_name}"
+        )
+
 
     if policy['ScalingPolicies']:
         try:
@@ -359,17 +370,30 @@ def main():
 
     argument_spec = dict(
         name=dict(required=True),
-        adjustment_type=dict(choices=['ChangeInCapacity', 'ExactCapacity', 'PercentChangeInCapacity']),
-        asg_name=dict(),
+        adjustment_type=dict(
+            choices=[
+                'ChangeInCapacity',
+                'ExactCapacity',
+                'PercentChangeInCapacity',
+            ]
+        ),
+        asg_name={},
         scaling_adjustment=dict(type='int'),
         min_adjustment_step=dict(type='int'),
         cooldown=dict(type='int'),
         state=dict(default='present', choices=['present', 'absent']),
-        metric_aggregation=dict(default='Average', choices=['Minimum', 'Maximum', 'Average']),
-        policy_type=dict(default='SimpleScaling', choices=['SimpleScaling', 'StepScaling']),
-        step_adjustments=dict(type='list', options=step_adjustment_spec, elements='dict'),
-        estimated_instance_warmup=dict(type='int')
+        metric_aggregation=dict(
+            default='Average', choices=['Minimum', 'Maximum', 'Average']
+        ),
+        policy_type=dict(
+            default='SimpleScaling', choices=['SimpleScaling', 'StepScaling']
+        ),
+        step_adjustments=dict(
+            type='list', options=step_adjustment_spec, elements='dict'
+        ),
+        estimated_instance_warmup=dict(type='int'),
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               required_if=[['state', 'present', ['asg_name', 'adjustment_type']]])

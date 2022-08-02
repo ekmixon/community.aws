@@ -342,15 +342,11 @@ def tags_match(match_tags, candidate_tags):
 
 def get_route_table_by_id(connection, module, route_table_id):
 
-    route_table = None
     try:
         route_tables = describe_route_tables_with_backoff(connection, RouteTableIds=[route_table_id])
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Couldn't get route table")
-    if route_tables:
-        route_table = route_tables[0]
-
-    return route_table
+    return route_tables[0] if route_tables else None
 
 
 def get_route_table_by_tags(connection, module, vpc_id, tags):
@@ -376,9 +372,12 @@ def get_route_table_by_tags(connection, module, vpc_id, tags):
 def route_spec_matches_route(route_spec, route):
     if route_spec.get('GatewayId') and 'nat-' in route_spec['GatewayId']:
         route_spec['NatGatewayId'] = route_spec.pop('GatewayId')
-    if route_spec.get('GatewayId') and 'vpce-' in route_spec['GatewayId']:
-        if route_spec.get('DestinationCidrBlock', '').startswith('pl-'):
-            route_spec['DestinationPrefixListId'] = route_spec.pop('DestinationCidrBlock')
+    if (
+        route_spec.get('GatewayId')
+        and 'vpce-' in route_spec['GatewayId']
+        and route_spec.get('DestinationCidrBlock', '').startswith('pl-')
+    ):
+        route_spec['DestinationPrefixListId'] = route_spec.pop('DestinationCidrBlock')
 
     return set(route_spec.items()).issubset(route.items())
 
@@ -475,14 +474,13 @@ def ensure_subnet_association(connection=None, module=None, vpc_id=None, route_t
             if a['SubnetId'] == subnet_id:
                 if route_table['RouteTableId'] == route_table_id:
                     return {'changed': False, 'association_id': a['RouteTableAssociationId']}
-                else:
-                    if check_mode:
-                        return {'changed': True}
-                    try:
-                        connection.disassociate_route_table(
-                            aws_retry=True, AssociationId=a['RouteTableAssociationId'])
-                    except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                        module.fail_json_aws(e, msg="Couldn't disassociate subnet from route table")
+                if check_mode:
+                    return {'changed': True}
+                try:
+                    connection.disassociate_route_table(
+                        aws_retry=True, AssociationId=a['RouteTableAssociationId'])
+                except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+                    module.fail_json_aws(e, msg="Couldn't disassociate subnet from route table")
 
     try:
         association_id = connection.associate_route_table(aws_retry=True,
@@ -527,8 +525,7 @@ def ensure_propagation(connection=None, module=None, route_table=None, propagati
                        check_mode=None):
     changed = False
     gateways = [gateway['GatewayId'] for gateway in route_table['PropagatingVgws']]
-    to_add = set(propagating_vgw_ids) - set(gateways)
-    if to_add:
+    if to_add := set(propagating_vgw_ids) - set(gateways):
         changed = True
         if not check_mode:
             for vgw_id in to_add:
@@ -689,13 +686,14 @@ def main():
         purge_routes=dict(default=True, type='bool'),
         purge_subnets=dict(default=True, type='bool'),
         purge_tags=dict(default=False, type='bool'),
-        route_table_id=dict(),
+        route_table_id={},
         routes=dict(default=[], type='list', elements='dict'),
         state=dict(default='present', choices=['present', 'absent']),
         subnets=dict(type='list', elements='str'),
         tags=dict(type='dict', aliases=['resource_tags']),
-        vpc_id=dict()
+        vpc_id={},
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec,
                               required_if=[['lookup', 'id', ['route_table_id']],

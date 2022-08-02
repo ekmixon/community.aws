@@ -175,10 +175,10 @@ def create_job_queue(module, client):
 
 
 def get_compute_environment_order_list(module):
-    compute_environment_order_list = []
-    for ceo in module.params['compute_environment_order']:
-        compute_environment_order_list.append(dict(order=ceo['order'], computeEnvironment=ceo['compute_environment']))
-    return compute_environment_order_list
+    return [
+        dict(order=ceo['order'], computeEnvironment=ceo['compute_environment'])
+        for ceo in module.params['compute_environment_order']
+    ]
 
 
 def remove_job_queue(module, client):
@@ -206,7 +206,6 @@ def remove_job_queue(module, client):
 
 def manage_state(module, client):
     changed = False
-    current_state = 'absent'
     state = module.params['state']
     job_queue_state = module.params['job_queue_state']
     job_queue_name = module.params['job_queue_name']
@@ -218,21 +217,17 @@ def manage_state(module, client):
 
     # check if the job queue exists
     current_job_queue = get_current_job_queue(module, client)
-    if current_job_queue:
-        current_state = 'present'
-
+    current_state = 'present' if current_job_queue else 'absent'
     if state == 'present':
         if current_state == 'present':
             updates = False
-            # Update Batch Job Queue configuration
             job_kwargs = {'jobQueue': job_queue_name}
-
             # Update configuration if needed
             if job_queue_state and current_job_queue['state'] != job_queue_state:
-                job_kwargs.update({'state': job_queue_state})
+                job_kwargs['state'] = job_queue_state
                 updates = True
             if priority is not None and current_job_queue['priority'] != priority:
-                job_kwargs.update({'priority': priority})
+                job_kwargs['priority'] = priority
                 updates = True
 
             new_compute_environment_order_list = get_compute_environment_order_list(module)
@@ -258,11 +253,10 @@ def manage_state(module, client):
         response = get_current_job_queue(module, client)
         if not response:
             module.fail_json(msg='Unable to get job queue information after creating/updating')
-    else:
-        if current_state == 'present':
-            # remove the Job Queue
-            changed = remove_job_queue(module, client)
-            action_taken = 'deleted'
+    elif current_state == 'present':
+        # remove the Job Queue
+        changed = remove_job_queue(module, client)
+        action_taken = 'deleted'
     return dict(changed=changed, batch_job_queue_action=action_taken, response=response)
 
 

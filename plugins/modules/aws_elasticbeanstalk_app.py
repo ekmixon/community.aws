@@ -127,29 +127,23 @@ def check_app(ebs, app, module):
         result = dict(changed=False, output="App is up-to-date", app=app)
     elif state == 'absent' and app is None:
         result = dict(changed=False, output="App does not exist", app={})
-    elif state == 'absent' and app is not None:
+    elif state == 'absent':
         result = dict(changed=True, output="App will be deleted", app=app)
-    elif state == 'absent' and app is not None and terminate_by_force is True:
-        result = dict(changed=True, output="Running environments terminated before the App will be deleted", app=app)
-
     module.exit_json(**result)
 
 
 def filter_empty(**kwargs):
-    retval = {}
-    for k, v in kwargs.items():
-        if v:
-            retval[k] = v
-    return retval
+    return {k: v for k, v in kwargs.items() if v}
 
 
 def main():
     argument_spec = dict(
         app_name=dict(aliases=['name'], type='str', required=False),
-        description=dict(),
+        description={},
         state=dict(choices=['present', 'absent'], default='present'),
-        terminate_by_force=dict(type='bool', default=False, required=False)
+        terminate_by_force=dict(type='bool', default=False, required=False),
     )
+
 
     module = AnsibleAWSModule(argument_spec=argument_spec, supports_check_mode=True)
 
@@ -182,39 +176,37 @@ def main():
             app = describe_app(ebs, app_name, module)
 
             result = dict(changed=True, app=app)
-        else:
-            if app.get("Description", None) != description:
-                try:
-                    if not description:
-                        ebs.update_application(ApplicationName=app_name)
-                    else:
-                        ebs.update_application(ApplicationName=app_name, Description=description)
-                except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                    module.fail_json_aws(e, msg="Could not update application")
+        elif app.get("Description", None) == description:
+            result = dict(changed=False, app=app)
 
-                app = describe_app(ebs, app_name, module)
-
-                result = dict(changed=True, app=app)
-            else:
-                result = dict(changed=False, app=app)
-
-    else:
-        if app is None:
-            result = dict(changed=False, output='Application not found', app={})
         else:
             try:
-                if terminate_by_force:
-                    # Running environments will be terminated before deleting the application
-                    ebs.delete_application(ApplicationName=app_name, TerminateEnvByForce=terminate_by_force)
+                if description:
+                    ebs.update_application(ApplicationName=app_name, Description=description)
                 else:
-                    ebs.delete_application(ApplicationName=app_name)
-                changed = True
-            except is_boto3_error_message('It is currently pending deletion'):
-                changed = False
-            except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:  # pylint: disable=duplicate-except
-                module.fail_json_aws(e, msg="Cannot terminate app")
+                    ebs.update_application(ApplicationName=app_name)
+            except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+                module.fail_json_aws(e, msg="Could not update application")
 
-            result = dict(changed=changed, app=app)
+            app = describe_app(ebs, app_name, module)
+
+            result = dict(changed=True, app=app)
+    elif app is None:
+        result = dict(changed=False, output='Application not found', app={})
+    else:
+        try:
+            if terminate_by_force:
+                # Running environments will be terminated before deleting the application
+                ebs.delete_application(ApplicationName=app_name, TerminateEnvByForce=terminate_by_force)
+            else:
+                ebs.delete_application(ApplicationName=app_name)
+            changed = True
+        except is_boto3_error_message('It is currently pending deletion'):
+            changed = False
+        except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:  # pylint: disable=duplicate-except
+            module.fail_json_aws(e, msg="Cannot terminate app")
+
+        result = dict(changed=changed, app=app)
 
     module.exit_json(**result)
 

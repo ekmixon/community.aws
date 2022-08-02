@@ -94,14 +94,14 @@ def get_placement_groups_details(connection, module):
             e,
             msg="Couldn't find placement groups named [%s]" % names)
 
-    results = []
-    for placement_group in response['PlacementGroups']:
-        results.append({
+    return [
+        {
             "name": placement_group['GroupName'],
             "state": placement_group['State'],
             "strategy": placement_group['Strategy'],
-        })
-    return results
+        }
+        for placement_group in response['PlacementGroups']
+    ]
 
 
 def main():

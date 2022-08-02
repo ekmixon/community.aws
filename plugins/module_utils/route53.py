@@ -22,7 +22,7 @@ def manage_tags(module, client, resource_type, resource_id, new_tags, purge_tags
     old_tags = get_tags(module, client, resource_type, resource_id)
     tags_to_set, tags_to_delete = compare_aws_tags(old_tags, new_tags, purge_tags=purge_tags)
 
-    change_params = dict()
+    change_params = {}
     if tags_to_set:
         change_params['AddTags'] = ansible_dict_to_boto3_tag_list(tags_to_set)
     if tags_to_delete:
@@ -60,5 +60,4 @@ def get_tags(module, client, resource_type, resource_id):
         module.fail_json_aws(e, msg='Failed to fetch tags on {0}'.format(resource_type),
                              resource_id=resource_id)
 
-    tags = boto3_tag_list_to_ansible_dict(tagset['ResourceTagSet']['Tags'])
-    return tags
+    return boto3_tag_list_to_ansible_dict(tagset['ResourceTagSet']['Tags'])
